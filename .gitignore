@@ -1,0 +1,26 @@
+# claude out
+CLAUDE.md
+CLAUDE/
+claude/
+
+# 🎯 Model checkpoints & assets (large files)
+checkpoints/
+assests/
+
+# 🐍 Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+*.so
+
+# 📦 Environment
+*.egg
+
+# 🔧 IDE
+.idea/
+.vscode/
+
+# ignore output
+datasets/
+datasets/*/*/
