@@ -7,6 +7,8 @@ Usage: python -m recons.server.server_gsam2
 import os
 os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
 
+import base64
+import io
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -109,7 +111,6 @@ class GSAM2Model:
 class PredictRequest(BaseModel):
     image_path: str
     text_prompt: str
-    output_dir: str
     include_hand: bool = True
 
 
@@ -126,7 +127,8 @@ class PredictResponse(BaseModel):
     message: str
     detections: list[Detection] = []
     img_size: list[int] = []
-    saved_files: dict = {}
+    annotated_image_b64: str = ""  # 🖼️ base64 detection visualization
+    mask_image_b64: str = ""  # 🎨 base64 combined mask
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -149,15 +151,17 @@ def build_response_detections(dets: list[dict], masks: np.ndarray) -> list[Detec
     return result
 
 
-def save_visuals(
-    image_rgb: np.ndarray, masks: np.ndarray, dets: list[dict],
-    output_dir: Path, cfg: DictConfig
-) -> dict[str, str]:
-    """💾 Save detection visualization and combined mask."""
-    output_dir.mkdir(parents=True, exist_ok=True)
-    saved = {}
+def generate_visuals(
+    image_rgb: np.ndarray, masks: np.ndarray, dets: list[dict], cfg: DictConfig
+) -> tuple[str, str]:
+    """🎨 Generate base64 encoded visualization images.
+
+    Returns:
+        annotated_b64: Detection visualization (JPEG base64)
+        mask_b64: Combined mask (PNG base64)
+    """
     h, w = masks.shape[1], masks.shape[2]
-    print(f"💾 Saving visuals to {output_dir} ...")
+    print(f"🎨 Generating visualizations...")
 
     # 🖼️ Detection visualization
     sv_dets = sv.Detections(
@@ -170,9 +174,9 @@ def save_visuals(
     annotated = sv.BoxAnnotator().annotate(scene=img_bgr.copy(), detections=sv_dets)
     annotated = sv.LabelAnnotator().annotate(scene=annotated, detections=sv_dets, labels=labels)
     annotated = sv.MaskAnnotator().annotate(scene=annotated, detections=sv_dets)
-    det_path = output_dir / "detection.jpg"
-    cv2.imwrite(str(det_path), annotated)
-    saved["detection"] = str(det_path)
+
+    _, annotated_buffer = cv2.imencode(".jpg", annotated)
+    annotated_b64 = base64.b64encode(annotated_buffer).decode("utf-8")
 
     # 🎨 Combined mask with colors
     hand_mask = np.zeros((h, w), dtype=bool)
@@ -183,11 +187,12 @@ def save_visuals(
     combined = np.zeros((h, w, 3), dtype=np.uint8)
     combined[obj_mask & ~hand_mask] = cfg.visualization.obj_color
     combined[hand_mask] = cfg.visualization.hand_color
-    mask_path = output_dir / "mask.png"
-    cv2.imwrite(str(mask_path), cv2.cvtColor(combined, cv2.COLOR_RGB2BGR))
-    saved["mask"] = str(mask_path)
+    combined_bgr = cv2.cvtColor(combined, cv2.COLOR_RGB2BGR)
 
-    return saved
+    _, mask_buffer = cv2.imencode(".png", combined_bgr)
+    mask_b64 = base64.b64encode(mask_buffer).decode("utf-8")
+
+    return annotated_b64, mask_b64
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -218,7 +223,7 @@ def predict(req: PredictRequest) -> PredictResponse:
 
     h, w = masks.shape[1], masks.shape[2]
     detections = build_response_detections(dets, masks)
-    saved_files = save_visuals(np.array(image), masks, dets, Path(req.output_dir), model.cfg)
+    annotated_b64, mask_b64 = generate_visuals(np.array(image), masks, dets, model.cfg)
     print(f"🎉 Done! {len(detections)} objects detected")
 
     return PredictResponse(
@@ -226,7 +231,8 @@ def predict(req: PredictRequest) -> PredictResponse:
         message=f"Detected {len(detections)} objects",
         detections=detections,
         img_size=[h, w],
-        saved_files=saved_files,
+        annotated_image_b64=annotated_b64,
+        mask_image_b64=mask_b64,
     )
 
 
