@@ -1,0 +1,33 @@
+# 🎯 Grounded-SAM2 Segmentation Server Config
+server:
+  host: "0.0.0.0"
+  port: 6001
+
+model:
+  # 🦖 Grounding DINO
+  grounding_dino_path: ../checkpoints/gsam2/grounding-dino-base
+  # 🎭 SAM2
+  sam2_config: model_cfg/sam2.1/sam2.1_hiera_b+.yaml
+  sam2_checkpoint: ../checkpoints/gsam2/sam2.1_hiera_base_plus.pt
+
+inference:
+  box_threshold: 0.25
+  text_threshold: 0.25
+  obj_confidence_threshold: 0.2
+  hand_confidence_threshold: 0.2
+
+visualization:
+  # 🎨 RGB colors
+  obj_color: [102, 178, 255]   # soft blue
+  hand_color: [144, 238, 144]  # soft green
+
+# 🔧 Hydra output control
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+  job_logging:
+    handlers:
+      file:
+        filename: log/server_gsam2.log
+        mode: w    
