@@ -24,3 +24,5 @@ __pycache__/
 # ignore output
 datasets/
 datasets/*/*/
+
+omnidexgrasp/log/

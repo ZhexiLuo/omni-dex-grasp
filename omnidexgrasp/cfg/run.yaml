@@ -1,0 +1,28 @@
+# 🔄 Recons Pipeline Run Configuration
+defaults:
+  - model/config_recons@_global_
+  - _self_
+
+# 📂 Input/Output paths
+input: ???  # 🚨 Required: data directory
+output: null  # Default: input/recons_output
+
+# 🔧 Pipeline stages (正确顺序: gsam2 → depth2pc → hamer → megapose)
+stages:
+  - gsam2
+  - depth2pc
+  - hamer
+  - megapose
+
+# 📸 Input filenames
+scene: scene.png
+depth: depth.png
+intrinsics: intrinsics.yaml
+mesh: null  # Optional: mesh filename for scaling
+text_prompt: null  # Optional: override default_text_prompt
+
+# 🔧 Hydra output control
+hydra:
+  run:
+    dir: .
+  output_subdir: null
