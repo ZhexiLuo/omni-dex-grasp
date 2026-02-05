@@ -21,6 +21,9 @@ __pycache__/
 .idea/
 .vscode/
 
+# logs
+*.log
+
 # ignore output
 datasets/
 datasets/*/*/
