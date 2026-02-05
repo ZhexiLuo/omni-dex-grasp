@@ -26,6 +26,6 @@ __pycache__/
 
 # ignore output
 datasets/
-datasets/*/*/
+out/
 
 omnidexgrasp/log/

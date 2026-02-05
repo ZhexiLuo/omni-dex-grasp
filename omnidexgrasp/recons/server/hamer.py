@@ -177,7 +177,7 @@ class HaMeRModel:
             "vertices": verts,
             "cam_transl": pred_cam_t[n],
             "is_right": bool(is_right),
-            "mano_params": {k: v.detach().cpu().numpy().tolist() for k, v in out["mano_params"].items()},
+            "mano_params": {k: v.detach().cpu().numpy().tolist() for k, v in out["pred_mano_params"].items()},
             "img_size": img_size[n].cpu().numpy().tolist(),
         }
 
@@ -197,7 +197,7 @@ class HaMeRModel:
             focal_length=focal_length,
         )
         # 🎭 Binary mask: 255 where no hand, 0 where hand
-        hand_mask = np.ones((int(img_size[0]), int(img_size[1]), 3), dtype=np.uint8) * 255
+        hand_mask = np.ones((int(img_size[1]), int(img_size[0]), 3), dtype=np.uint8) * 255
         hand_mask[cam_view[:, :, 3] > 0] = 0
         return hand_mask
 

@@ -1,0 +1,23 @@
+# 🔄 Reconstruction Pipeline Config
+datasets: ../datasets
+output: ../out
+
+servers:
+  gsam: http://localhost:6001/predict
+  hamer: http://localhost:6002/predict
+  timeout: 60
+
+out:
+  vis: true           # 📊 Output visualizations
+  inter_out: false    # 💾 Output intermediate data (detections, vertices)
+
+# 🔧 Hydra output control
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+  job_logging:
+    handlers:
+      file:
+        filename: log/recons.log
+        mode: w

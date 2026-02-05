@@ -69,7 +69,7 @@ class GSAM2Model:
 
         results = self.grounding_processor.post_process_grounded_object_detection(
             outputs, inputs.input_ids,
-            box_threshold=self.cfg.inference.box_threshold,
+            threshold=self.cfg.inference.box_threshold,
             text_threshold=self.cfg.inference.text_threshold,
             target_sizes=[image.size[::-1]],
         )
@@ -212,11 +212,14 @@ def predict(req: PredictRequest, request: Request) -> PredictResponse:
     print(f"\n{'='*60}")
     print(f"📨 New request: {req.image_path}")
     image_path = Path(req.image_path)
-    if not image_path.exists():
-        return PredictResponse(status="error", message=f"Image not found: {req.image_path}")
     image = Image.open(image_path).convert("RGB")
 
-    dets = model.detect(image, req.text_prompt)
+    text_prompt = req.text_prompt
+    if req.include_hand:
+        text_prompt = f"{text_prompt.rstrip('. ')}. hand."
+        print(f"  🤚 Auto-appended 'hand.' to prompt: '{text_prompt}'")
+
+    dets = model.detect(image, text_prompt)
     dets = model.filter_detections(dets, req.include_hand)
     if not dets:
         return PredictResponse(status="warning", message="No detections above threshold")
