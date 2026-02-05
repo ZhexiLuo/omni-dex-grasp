@@ -4,6 +4,8 @@ server:
   port: 6001
 
 model:
+  # 🌐 HuggingFace mirror (null to use default)
+  hf_endpoint: "https://hf-mirror.com"
   # 🦖 Grounding DINO
   grounding_dino_path: ../checkpoints/gsam2/grounding-dino-base
   # 🎭 SAM2

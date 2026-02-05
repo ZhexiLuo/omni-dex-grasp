@@ -5,7 +5,6 @@ POST /predict - Detect and segment objects/hands in image.
 Usage: python -m recons.server.server_gsam2
 """
 import os
-os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
 
 import base64
 import io
@@ -19,7 +18,7 @@ import pycocotools.mask as mask_util
 import supervision as sv
 import torch
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from omegaconf import DictConfig
 from PIL import Image
 from pydantic import BaseModel
@@ -42,6 +41,9 @@ class GSAM2Model:
     @classmethod
     def from_config(cls, cfg: DictConfig) -> "GSAM2Model":
         """🚀 Load models from config."""
+        if cfg.model.get("hf_endpoint"):
+            os.environ["HF_ENDPOINT"] = cfg.model.hf_endpoint
+
         from sam2.build_sam import build_sam2
         from sam2.sam2_image_predictor import SAM2ImagePredictor
 
@@ -60,9 +62,7 @@ class GSAM2Model:
     def detect(self, image: Image.Image, text_prompt: str) -> list[dict]:
         """🦖 Run Grounding DINO detection."""
         print(f"🦖 Detecting with prompt: '{text_prompt}'")
-        inputs = self.grounding_processor(
-            images=image, text=text_prompt, return_tensors="pt"
-        ).to(self.device)
+        inputs = self.grounding_processor(images=image, text=text_prompt, return_tensors="pt").to(self.device)
 
         with torch.no_grad():
             outputs = self.grounding_model(**inputs)
@@ -182,7 +182,10 @@ def generate_visuals(
     hand_mask = np.zeros((h, w), dtype=bool)
     obj_mask = np.zeros((h, w), dtype=bool)
     for mask, det in zip(masks, dets):
-        (hand_mask if det["is_hand"] else obj_mask).__ior__(mask.astype(bool))
+        if det["is_hand"]:
+            hand_mask |= mask.astype(bool)
+        else:
+            obj_mask |= mask.astype(bool)
 
     combined = np.zeros((h, w, 3), dtype=np.uint8)
     combined[obj_mask & ~hand_mask] = cfg.visualization.obj_color
@@ -200,12 +203,12 @@ def generate_visuals(
 # ══════════════════════════════════════════════════════════════════════════════
 
 app = FastAPI(title="🎯 Grounded-SAM2 Server")
-model: GSAM2Model = None  # type: ignore
 
 
 @app.post("/predict", response_model=PredictResponse)
-def predict(req: PredictRequest) -> PredictResponse:
+def predict(req: PredictRequest, request: Request) -> PredictResponse:
     """🔍 Detect and segment objects/hands."""
+    model = request.app.state.model
     print(f"\n{'='*60}")
     print(f"📨 New request: {req.image_path}")
     image_path = Path(req.image_path)
@@ -236,11 +239,10 @@ def predict(req: PredictRequest) -> PredictResponse:
     )
 
 
-@hydra.main(config_path="../../cfg/model", config_name="config_gsam2", version_base=None)
+@hydra.main(config_path="../../cfg/model", config_name="gsam", version_base=None)
 def main(cfg: DictConfig) -> None:
     """🚀 Start server with Hydra config."""
-    global model
-    model = GSAM2Model.from_config(cfg)
+    app.state.model = GSAM2Model.from_config(cfg)
     print(f"🌐 Server starting at http://{cfg.server.host}:{cfg.server.port}")
     uvicorn.run(app, host=cfg.server.host, port=cfg.server.port)
 
