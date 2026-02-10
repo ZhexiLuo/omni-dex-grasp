@@ -1,0 +1,19 @@
+# 📐 FoundationPose 6D Pose Estimation Server Config
+server:
+  host: "0.0.0.0"
+  port: 6004
+
+inference:
+  est_refine_iter: 5
+  debug: 0
+
+# 🔧 Hydra output control
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+  job_logging:
+    handlers:
+      file:
+        filename: log/server_fdpose.log
+        mode: w

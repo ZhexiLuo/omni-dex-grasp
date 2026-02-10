@@ -41,8 +41,6 @@ class GSAM2Model:
     @classmethod
     def from_config(cls, cfg: DictConfig) -> "GSAM2Model":
         """🚀 Load models from config."""
-        if cfg.model.get("hf_endpoint"):
-            os.environ["HF_ENDPOINT"] = cfg.model.hf_endpoint
 
         from sam2.build_sam import build_sam2
         from sam2.sam2_image_predictor import SAM2ImagePredictor

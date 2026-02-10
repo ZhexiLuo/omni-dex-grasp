@@ -1,0 +1,18 @@
+# 🌊 Depth-Anything-3 Depth Estimation Server Config
+server:
+  host: "0.0.0.0"
+  port: 6003
+
+model:
+  pretrained: "depth-anything/DA3METRIC-LARGE"  # 📏 metric depth model
+
+# 🔧 Hydra output control
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+  job_logging:
+    handlers:
+      file:
+        filename: log/server_da3.log
+        mode: w

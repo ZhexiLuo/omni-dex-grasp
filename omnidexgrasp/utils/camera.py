@@ -13,7 +13,6 @@ class CameraIntrinsics:
     width: int
     height: int
 
-#FIXME: define as class method
 def dynamic_intrinsics(
     base: CameraIntrinsics, target_width: int, target_height: int
 ) -> CameraIntrinsics:
