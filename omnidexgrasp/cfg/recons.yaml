@@ -11,6 +11,15 @@ out:
   vis: true           # 📊 Output visualizations
   inter_out: false    # 💾 Output intermediate data (detections, vertices)
 
+# 📏 Object scale computation params
+scale:
+  depth_scale: 0.001          # depth.png uint16 → meters (mm * 0.001)
+  max_depth_m: 3.0            # discard depth > 3m
+  dbscan_eps: 0.005           # DBSCAN neighborhood radius (meters)
+  dbscan_min_samples: 10      # DBSCAN min cluster size
+  stat_nb_neighbors: 20       # statistical outlier removal neighbors
+  stat_std_ratio: 2.0         # statistical outlier removal std ratio
+
 # 🔧 Hydra output control
 hydra:
   run:

@@ -58,6 +58,16 @@ class HaMeRResult:
 
 
 @dataclass
+class ScaleResult:
+    """📏 Object real-world scale computation result."""
+
+    scale_factor: float
+    pcd_num_points: int
+    pcd_max_extent: float
+    mesh_max_extent: float
+
+
+@dataclass
 class TaskOutput:
     """📤 Complete output data for a single task."""
 
@@ -65,6 +75,7 @@ class TaskOutput:
     gsam_scene: GSAMResult | None = None
     gsam_grasp: GSAMResult | None = None
     hamer: HaMeRResult | None = None
+    scale: ScaleResult | None = None
 
 
 # ══════════════════════════════════════════════════════════════════════════════

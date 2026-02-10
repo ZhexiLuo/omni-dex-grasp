@@ -17,11 +17,18 @@ from PIL import Image
 from recons.data import (
     GSAMResult,
     HaMeRResult,
+    ScaleResult,
     TaskInput,
     TaskOutput,
     load_tasks,
 )
 from utils.camera import compute_focal, dynamic_intrinsics
+from utils.pointcloud import (
+    compute_obj_scale,
+    decode_mask_rle,
+    denoise_pointcloud,
+    depth_to_pointcloud,
+)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -103,6 +110,20 @@ def call_hamer(
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# 📏 Scale Computation
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+def extract_obj_mask_rle(gsam_result: GSAMResult) -> dict:
+    """🎭 Extract highest-confidence non-hand object mask_rle from GSAM result."""
+    obj_dets = [d for d in gsam_result.detections if not d.get("is_hand", False)]
+    if not obj_dets:
+        raise ValueError("❌ No object detection in GSAM scene result")
+    best = max(obj_dets, key=lambda d: d["score"])
+    return best["mask_rle"]
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # 🎯 Task Processing
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -131,7 +152,38 @@ def process_task(task: TaskInput, cfg: DictConfig) -> TaskOutput:
     )
     print(f"     └─ {output.gsam_scene.status}: {output.gsam_scene.message}")
 
-    # 2️⃣ GSAM: generated_grasp (with hand)
+    # 2️⃣ Scale: compute object real-world scale
+    print(f"  📏 Scale: computing object real-world scale")
+    obj_mask_rle = extract_obj_mask_rle(output.gsam_scene)
+    obj_mask = decode_mask_rle(obj_mask_rle)
+
+    pcd_raw = depth_to_pointcloud(
+        task.depth, obj_mask, task.camera,
+        depth_scale=cfg.scale.depth_scale,
+        max_depth_m=cfg.scale.max_depth_m,
+    )
+    print(f"     └─ raw points: {pcd_raw.shape[0]}")
+
+    pcd_clean = denoise_pointcloud(
+        pcd_raw,
+        dbscan_eps=cfg.scale.dbscan_eps,
+        dbscan_min_samples=cfg.scale.dbscan_min_samples,
+        stat_nb_neighbors=cfg.scale.stat_nb_neighbors,
+        stat_std_ratio=cfg.scale.stat_std_ratio,
+    )
+    print(f"     └─ cleaned points: {pcd_clean.shape[0]}")
+
+    scale_factor, pcd_ext, mesh_ext = compute_obj_scale(pcd_clean, task.obj_mesh)
+    output.scale = ScaleResult(
+        scale_factor=scale_factor,
+        pcd_num_points=pcd_clean.shape[0],
+        pcd_max_extent=pcd_ext,
+        mesh_max_extent=mesh_ext,
+    )
+    print(f"     └─ scale_factor: {scale_factor:.6f}")
+    print(f"     └─ pcd_extent: {pcd_ext:.4f}m, mesh_extent: {mesh_ext:.4f}")
+
+    # 3️⃣ GSAM: generated_grasp (with hand)
     print(f"  🎭 GSAM: generated_grasp (with hand)")
     output.gsam_grasp = call_gsam(
         cfg.servers.gsam,
@@ -142,7 +194,7 @@ def process_task(task: TaskInput, cfg: DictConfig) -> TaskOutput:
     )
     print(f"     └─ {output.gsam_grasp.status}: {output.gsam_grasp.message}")
 
-    # 3️⃣ HaMeR: hand reconstruction
+    # 4️⃣ HaMeR: hand reconstruction
     print(f"  🤚 HaMeR: hand reconstruction")
     grasp_img = Image.open(task.generated_grasp)
     scaled_cam = dynamic_intrinsics(task.camera, grasp_img.width, grasp_img.height)
@@ -277,6 +329,20 @@ def save_intermediate(result: TaskOutput, output_dir: Path) -> None:
             vertices = decode_array_b64(result.hamer.vertices_b64)
             np.save(data_dir / "hamer_vertices.npy", vertices)
 
+    # Scale data
+    if result.scale:
+        with open(data_dir / "scale.json", "w") as f:
+            json.dump(
+                {
+                    "scale_factor": result.scale.scale_factor,
+                    "pcd_num_points": result.scale.pcd_num_points,
+                    "pcd_max_extent": result.scale.pcd_max_extent,
+                    "mesh_max_extent": result.scale.mesh_max_extent,
+                },
+                f,
+                indent=2,
+            )
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 🚀 Entry Point
@@ -296,18 +362,24 @@ def main(cfg: DictConfig) -> None:
     print(f"🖥️  HaMeR: {cfg.servers.hamer}")
 
     task_count = 0
+    failed = []
     for task in load_tasks(datasets_dir):
         print(f"\n{'='*60}")
         print(f"🎯 Processing: {task.name}")
 
-        result = process_task(task, cfg)
-        save_output(result, output_dir / task.name, cfg)
-
-        task_count += 1
-        print(f"✅ Done: {task.name}")
+        try:
+            result = process_task(task, cfg)
+            save_output(result, output_dir / task.name, cfg)
+            task_count += 1
+            print(f"✅ Done: {task.name}")
+        except Exception as e:
+            failed.append(task.name)
+            print(f"  ❌ Failed: {task.name} — {type(e).__name__}: {e}")
 
     print(f"\n{'='*60}")
-    print(f"🎉 All {task_count} tasks completed!")
+    print(f"🎉 Completed: {task_count}, Failed: {len(failed)}")
+    if failed:
+        print(f"❌ Failed tasks: {', '.join(failed)}")
 
 
 if __name__ == "__main__":

@@ -4,7 +4,6 @@ server:
   port: 6001
 
 model:
-  hf_endpoint: "https://hf-mirror.com"
   # 🦖 Grounding DINO
   grounding_dino_path: ../checkpoints/gsam2/grounding-dino-base
   # 🎭 SAM2
@@ -12,9 +11,9 @@ model:
   sam2_checkpoint: ../checkpoints/gsam2/sam2.1_hiera_base_plus.pt
 
 inference:
-  box_threshold: 0.25
-  text_threshold: 0.25
-  obj_confidence_threshold: 0.2
+  box_threshold: 0.1
+  text_threshold: 0.1
+  obj_confidence_threshold: 0
   hand_confidence_threshold: 0.2
 
 visualization:
