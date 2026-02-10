@@ -11,10 +11,9 @@ model:
   sam2_checkpoint: ../checkpoints/gsam2/sam2.1_hiera_base_plus.pt
 
 inference:
-  box_threshold: 0.1
-  text_threshold: 0.1
-  obj_confidence_threshold: 0
-  hand_confidence_threshold: 0.2
+  box_threshold: 0.1      # 🦖 Low threshold for candidates, top-1 selection handles filtering
+  text_threshold: 0.25    # 🏷️ Only affects label text extraction
+  center_ratio: 0.7       # 🎯 Object bbox must overlap center 70% region
 
 visualization:
   # 🎨 RGB colors

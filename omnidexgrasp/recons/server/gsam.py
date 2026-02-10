@@ -91,15 +91,35 @@ class GSAM2Model:
         masks, _, _ = self.sam2_predictor.predict(box=boxes, multimask_output=False)
         return masks.squeeze(1) if masks.ndim == 4 else masks
 
-    def filter_detections(self, dets: list[dict], include_hand: bool) -> list[dict]:
-        """🤚 Filter detections by confidence threshold."""
-        filtered = []
-        for d in dets:
-            threshold = self.cfg.inference.hand_confidence_threshold if d["is_hand"] else self.cfg.inference.obj_confidence_threshold
-            if d["score"] >= threshold and (include_hand or not d["is_hand"]):
-                filtered.append(d)
-        print(f"  🔍 Filtered: {len(dets)} → {len(filtered)} detections")
-        return filtered
+    def select_top_detections(self, dets: list[dict], include_hand: bool, img_size: tuple[int, int]) -> list[dict]:
+        """🎯 Select top-1 object (must overlap center region) and top-1 hand."""
+        h, w = img_size
+        r = self.cfg.inference.center_ratio
+        cx0, cy0, cx1, cy1 = w * (1-r)/2, h * (1-r)/2, w * (1+r)/2, h * (1+r)/2
+
+        obj_dets = [d for d in dets if not d["is_hand"]]
+        hand_dets = [d for d in dets if d["is_hand"]]
+        selected = []
+
+        # 🎯 Object: must overlap center region
+        center_objs = [d for d in obj_dets if d["box"][0] < cx1 and d["box"][2] > cx0 and d["box"][1] < cy1 and d["box"][3] > cy0]
+        if center_objs:
+            best = max(center_objs, key=lambda d: d["score"])
+            selected.append(best)
+            print(f"  🎯 Object: '{best['label']}' score={best['score']:.3f} ({len(center_objs)}/{len(obj_dets)} in center)")
+        else:
+            print(f"  ⚠️ No object in center region")
+
+        # 🤚 Hand: no center filter
+        if include_hand and hand_dets:
+            best = max(hand_dets, key=lambda d: d["score"])
+            selected.append(best)
+            print(f"  🤚 Hand: score={best['score']:.3f}")
+        elif include_hand:
+            print(f"  ⚠️ No hand detections found")
+
+        print(f"  🔍 Selected: {len(dets)} → {len(selected)} detections")
+        return selected
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -218,9 +238,9 @@ def predict(req: PredictRequest, request: Request) -> PredictResponse:
         print(f"  🤚 Auto-appended 'hand.' to prompt: '{text_prompt}'")
 
     dets = model.detect(image, text_prompt)
-    dets = model.filter_detections(dets, req.include_hand)
+    dets = model.select_top_detections(dets, req.include_hand, img_size=(image.height, image.width))
     if not dets:
-        return PredictResponse(status="warning", message="No detections above threshold")
+        return PredictResponse(status="warning", message="No detections found")
 
     boxes = np.array([d["box"] for d in dets])
     masks = model.segment(np.array(image), boxes)
