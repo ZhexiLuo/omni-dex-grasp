@@ -1,0 +1,9 @@
+# 🤚 MANO Hand Optimization Config
+datasets: ../datasets
+output: ../out
+easyhoi_root: ../thirdparty/EasyHOI
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null

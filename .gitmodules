@@ -10,3 +10,6 @@
 [submodule "omnidexgrasp/thirdparty/FoundationPose"]
 	path = omnidexgrasp/thirdparty/FoundationPose
 	url = https://github.com/NVlabs/FoundationPose
+[submodule "omnidexgrasp/thirdparty/EasyHOI"]
+	path = omnidexgrasp/thirdparty/EasyHOI
+	url = https://github.com/ZhexiLuo/EasyHOI
