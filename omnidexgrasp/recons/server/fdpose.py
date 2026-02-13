@@ -78,7 +78,7 @@ class FDPoseModel:
         self,
         image_path: str,
         depth: np.ndarray,
-        obj_mesh_path: str,
+        mesh: trimesh.Trimesh,
         bbox: list[float],
         intrinsics: np.ndarray,
     ) -> dict:
@@ -92,8 +92,7 @@ class FDPoseModel:
             if depth.shape != (H, W):
                 raise ValueError(f"Depth shape {depth.shape} != RGB shape ({H}, {W})")
 
-            # 2️⃣ Load mesh & reset estimator (float32 required by FoundationPose)
-            mesh = trimesh.load(obj_mesh_path, force="mesh")
+            # 2️⃣ Reset estimator with mesh (float32 required by FoundationPose)
             mesh.vertices = mesh.vertices.astype(np.float32)
             self.estimator.reset_object(
                 model_pts=mesh.vertices.copy(),
@@ -178,7 +177,7 @@ class FDPoseModel:
 class PredictRequest(BaseModel):
     image_path: str
     depth_b64: str                     # 📏 base64 encoded depth npy (H,W) float32, meters
-    obj_mesh_path: str
+    obj_mesh_b64: str                  # 📦 base64 encoded OBJ file content
     bbox: list[float]                  # [x1, y1, x2, y2]
     intrinsics: list[list[float]]      # 3x3 camera intrinsics matrix
 
@@ -226,9 +225,9 @@ def predict(req: PredictRequest, request: Request) -> PredictResponse:
     if not image_path.exists():
         return PredictResponse(status="error", message=f"Image not found: {req.image_path}")
 
-    mesh_path = Path(req.obj_mesh_path)
-    if not mesh_path.exists():
-        return PredictResponse(status="error", message=f"Mesh not found: {req.obj_mesh_path}")
+    # 🧊 Decode mesh from base64
+    mesh_bytes = base64.b64decode(req.obj_mesh_b64)
+    mesh = trimesh.load(io.BytesIO(mesh_bytes), file_type="obj", force="mesh")
 
     K = np.array(req.intrinsics, dtype=np.float64)  # FoundationPose expects float64 K
     if K.shape != (3, 3):
@@ -244,14 +243,14 @@ def predict(req: PredictRequest, request: Request) -> PredictResponse:
 
     print(f"  📏 Depth shape: {depth.shape}, range: [{depth.min():.3f}, {depth.max():.3f}] m")
     print(f"  📦 Bbox: {req.bbox}")
-    print(f"  🧊 Mesh: {req.obj_mesh_path}")
+    print(f"  🧊 Mesh: {len(mesh.vertices)} vertices (base64)")
 
     # 📐 Estimate pose
     try:
         result = model.estimate_pose(
             image_path=str(image_path),
             depth=depth,
-            obj_mesh_path=str(mesh_path),
+            mesh=mesh,
             bbox=req.bbox,
             intrinsics=K,
         )
@@ -273,7 +272,7 @@ def predict(req: PredictRequest, request: Request) -> PredictResponse:
 
     return PredictResponse(
         status=status,
-        message=f"Pose estimated for {mesh_path.stem}{msg_suffix}",
+        message=f"Pose estimated{msg_suffix}",
         pose=pose_list,
         pose_vis_b64=vis_b64,
         obj_mask_b64=obj_mask_b64,
