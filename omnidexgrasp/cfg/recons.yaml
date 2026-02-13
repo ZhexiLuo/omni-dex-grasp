@@ -5,7 +5,9 @@ output: ../out
 servers:
   gsam: http://localhost:6001/predict
   hamer: http://localhost:6002/predict
-  timeout: 60
+  da3: http://localhost:6003/predict
+  fdpose: http://localhost:6004/predict
+  timeout: 120
 
 out:
   vis: true           # 📊 Output visualizations
