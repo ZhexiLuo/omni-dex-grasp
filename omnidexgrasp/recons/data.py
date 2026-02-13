@@ -68,6 +68,29 @@ class ScaleResult:
 
 
 @dataclass
+class DA3Result:
+    """🌊 DA3 metric depth estimation result."""
+
+    status: str
+    message: str
+    depth_b64: str = ""
+    conf_b64: str = ""
+    is_metric: bool = False
+    depth_vis_b64: str = ""
+
+
+@dataclass
+class FDPoseResult:
+    """📐 FoundationPose 6D pose estimation result."""
+
+    status: str
+    message: str
+    pose: list[list[float]] = field(default_factory=list)  # 4x4
+    pose_vis_b64: str = ""
+    obj_mask_b64: str = ""
+
+
+@dataclass
 class TaskOutput:
     """📤 Complete output data for a single task."""
 
@@ -76,6 +99,10 @@ class TaskOutput:
     gsam_grasp: GSAMResult | None = None
     hamer: HaMeRResult | None = None
     scale: ScaleResult | None = None
+    da3_grasp: DA3Result | None = None
+    fdpose_scene: FDPoseResult | None = None
+    fdpose_grasp: FDPoseResult | None = None
+    scaled_mesh_path: Path | None = None
 
 
 # ══════════════════════════════════════════════════════════════════════════════

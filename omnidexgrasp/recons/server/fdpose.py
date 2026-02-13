@@ -26,7 +26,7 @@ from PIL import Image
 from pydantic import BaseModel
 
 from estimater import FoundationPose, ScorePredictor, PoseRefinePredictor
-from Utils import draw_posed_3d_box, draw_xyz_axis
+from Utils import draw_posed_3d_box, draw_xyz_axis, nvdiffrast_render
 import nvdiffrast.torch as dr
 
 
@@ -126,7 +126,10 @@ class FDPoseModel:
             # 5️⃣ Generate visualization
             vis = self._generate_vis(rgb, pose, mesh, intrinsics)
 
-            return {"pose": pose, "vis": vis, "is_degenerate": is_degenerate}
+            # 6️⃣ Render object mask at estimated pose
+            obj_mask = self._render_object_mask(pose, intrinsics, H, W)
+
+            return {"pose": pose, "vis": vis, "is_degenerate": is_degenerate, "obj_mask": obj_mask}
 
     def _generate_vis(
         self,
@@ -150,6 +153,23 @@ class FDPoseModel:
         )
         return vis_bgr
 
+    def _render_object_mask(
+        self, pose: np.ndarray, K: np.ndarray, H: int, W: int
+    ) -> np.ndarray:
+        """🎭 Render binary object mask at estimated pose using nvdiffrast.
+
+        Returns:
+            Binary mask (H, W) uint8, 255=object, 0=background.
+        """
+        ob_in_cam = torch.tensor(pose, device="cuda", dtype=torch.float).unsqueeze(0)
+        _, depth_rendered, _ = nvdiffrast_render(
+            K=K, H=H, W=W, ob_in_cams=ob_in_cam,
+            glctx=self.estimator.glctx,
+            mesh_tensors=self.estimator.mesh_tensors,
+        )
+        mask = (depth_rendered[0].cpu().numpy() > 0).astype(np.uint8) * 255
+        return mask
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 🌐 API
@@ -168,6 +188,7 @@ class PredictResponse(BaseModel):
     message: str
     pose: list[list[float]] = []       # 📐 4x4 pose matrix (object-in-camera)
     pose_vis_b64: str = ""             # 🎨 base64 encoded visualization
+    obj_mask_b64: str = ""             # 🎭 base64 encoded object mask PNG
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -241,6 +262,7 @@ def predict(req: PredictRequest, request: Request) -> PredictResponse:
     # 📦 Encode outputs
     pose_list = result["pose"].tolist()
     vis_b64 = encode_image_b64(result["vis"])
+    obj_mask_b64 = encode_image_b64(result["obj_mask"])
 
     status = "warning" if result["is_degenerate"] else "success"
     msg_suffix = " (⚠️ degenerate pose, may be unreliable)" if result["is_degenerate"] else ""
@@ -254,6 +276,7 @@ def predict(req: PredictRequest, request: Request) -> PredictResponse:
         message=f"Pose estimated for {mesh_path.stem}{msg_suffix}",
         pose=pose_list,
         pose_vis_b64=vis_b64,
+        obj_mask_b64=obj_mask_b64,
     )
 
 
