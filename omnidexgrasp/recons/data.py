@@ -1,7 +1,7 @@
 """📦 Data classes and loader for reconstruction pipeline."""
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterator
+from typing import Any, Iterator
 
 import yaml
 
@@ -65,6 +65,7 @@ class ScaleResult:
     pcd_num_points: int
     pcd_max_extent: float
     mesh_max_extent: float
+    scaled_mesh: Any = None  # trimesh.Trimesh, kept in memory
 
 
 @dataclass
@@ -102,7 +103,6 @@ class TaskOutput:
     da3_grasp: DA3Result | None = None
     fdpose_scene: FDPoseResult | None = None
     fdpose_grasp: FDPoseResult | None = None
-    scaled_mesh_path: Path | None = None
 
 
 # ══════════════════════════════════════════════════════════════════════════════
