@@ -102,19 +102,86 @@ def encode_mesh_b64(mesh: "trimesh.Trimesh") -> str:
     return base64.b64encode(buf.getvalue()).decode("utf-8")
 
 
+def encode_image_file_b64(image_path: Path) -> str:
+    """🖼️ Encode image file to base64 (preserves original PNG/JPG format)."""
+    return base64.b64encode(image_path.read_bytes()).decode("utf-8")
+
+
+def rescale_da3_depth(
+    scene_depth: np.ndarray,
+    scene_mask_rle: dict,
+    grasp_depth_b64: str,
+    window_size: int = 20,
+) -> tuple[str, float, float]:
+    """🔄 Rescale DA3 relative depth to metric using scene depth as reference.
+
+    Args:
+        scene_depth: Real depth (H_s, W_s) float32 in meters
+        scene_mask_rle: COCO RLE mask of object in scene image
+        grasp_depth_b64: DA3 predicted depth (base64 npy) for grasp image
+        grasp_mask_rle: COCO RLE mask of object in grasp image
+        window_size: Window size for center region sampling
+
+    Returns:
+        (rescaled_depth_b64, alpha, beta) where rescaled_depth_b64 is base64 npy
+    """
+    from utils.depth import (
+        compute_depth_affine,
+        find_mask_center_coords,
+        rescale_depth,
+    )
+
+    # 🎭 Decode masks
+    scene_mask = decode_mask_rle(scene_mask_rle)
+
+    # 🌊 Decode DA3 depth
+    grasp_depth = decode_array_b64(grasp_depth_b64)
+
+    # 🎯 Find center coords for both images
+    scene_coords = find_mask_center_coords(scene_mask, window_size)
+
+    # 📐 Compute affine from grasp (pred) to scene (gt) depth
+    # Resize grasp depth to scene resolution for matching
+    h_s, w_s = scene_depth.shape
+    h_g, w_g = grasp_depth.shape
+
+    if (h_g, w_g) != (h_s, w_s):
+        grasp_depth_resized = cv2.resize(
+            grasp_depth, (w_s, h_s), interpolation=cv2.INTER_CUBIC
+        )
+    else:
+        grasp_depth_resized = grasp_depth
+
+    # Use scene coords (both should be similar since same object)
+    alpha, beta = compute_depth_affine(
+        depth_pred=grasp_depth_resized,
+        depth_gt=scene_depth,
+        pixel_coords=scene_coords,
+        mask_invalid=True,
+    )
+
+    # 🔄 Apply rescale to original grasp depth (not resized)
+    rescaled = rescale_depth(grasp_depth, alpha, beta)
+
+    # 📦 Encode to b64
+    rescaled_b64 = encode_array_b64(rescaled)
+
+    return rescaled_b64, alpha, beta
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # 🌐 Server Calls
 # ══════════════════════════════════════════════════════════════════════════════
 
 
 def call_gsam(
-    url: str, image_path: Path, text_prompt: str, include_hand: bool, timeout: int
+    url: str, image_b64: str, text_prompt: str, include_hand: bool, timeout: int
 ) -> GSAMResult:
     """🦖 Call GSAM2 server for detection and segmentation."""
     resp = requests.post(
         url,
         json={
-            "image_path": str(image_path.resolve()),
+            "image_b64": image_b64,
             "text_prompt": text_prompt,
             "include_hand": include_hand,
         },
@@ -133,13 +200,13 @@ def call_gsam(
 
 
 def call_hamer(
-    url: str, image_path: Path, focal_length: float, timeout: int
+    url: str, image_b64: str, focal_length: float, timeout: int
 ) -> HaMeRResult:
     """🤚 Call HaMeR server for hand reconstruction."""
     resp = requests.post(
         url,
         json={
-            "image_path": str(image_path.resolve()),
+            "image_b64": image_b64,
             "focal_length": focal_length,
         },
         timeout=timeout,
@@ -158,16 +225,14 @@ def call_hamer(
 
 
 def call_da3(
-    url: str, image_path: Path, camera: CameraIntrinsics, timeout: int
+    url: str, image_b64: str, intrinsics_3x3: list[list[float]], timeout: int
 ) -> DA3Result:
     """🌊 Call DA3 server for metric depth estimation."""
-    img = Image.open(image_path)
-    scaled_cam = dynamic_intrinsics(camera, img.width, img.height)
     resp = requests.post(
         url,
         json={
-            "image_path": str(image_path.resolve()),
-            "intrinsics": intrinsics_to_3x3(scaled_cam),
+            "image_b64": image_b64,
+            "intrinsics": intrinsics_3x3,
         },
         timeout=timeout,
     )
@@ -178,31 +243,28 @@ def call_da3(
         message=data["message"],
         depth_b64=data.get("depth_b64", ""),
         conf_b64=data.get("conf_b64", ""),
-        is_metric=data.get("is_metric", False),
         depth_vis_b64=data.get("depth_vis_b64", ""),
     )
 
 
 def call_fdpose(
     url: str,
-    image_path: Path,
+    image_b64: str,
     depth_b64: str,
     mesh_b64: str,
     bbox: list[float],
-    camera: CameraIntrinsics,
+    intrinsics_3x3: list[list[float]],
     timeout: int,
 ) -> FDPoseResult:
     """📐 Call FDPose server for 6D pose estimation."""
-    img = Image.open(image_path)
-    scaled_cam = dynamic_intrinsics(camera, img.width, img.height)
     resp = requests.post(
         url,
         json={
-            "image_path": str(image_path.resolve()),
+            "image_b64": image_b64,
             "depth_b64": depth_b64,
             "obj_mesh_b64": mesh_b64,
             "bbox": bbox,
-            "intrinsics": intrinsics_to_3x3(scaled_cam),
+            "intrinsics": intrinsics_3x3,
         },
         timeout=timeout,
     )
@@ -229,11 +291,26 @@ def process_task(task: TaskInput, cfg: DictConfig) -> TaskOutput:
     output = TaskOutput(name=task.name)
     timeout = cfg.servers.timeout
 
+    # 📷 Pre-encode images (encode once, reuse for all servers)
+    scene_b64 = encode_image_file_b64(task.scene_image)
+    grasp_b64 = encode_image_file_b64(task.generated_grasp)
+
+    # 📐 Pre-compute intrinsics (grasp image resolution)
+    grasp_img = Image.open(task.generated_grasp)
+    grasp_cam = dynamic_intrinsics(task.camera, grasp_img.width, grasp_img.height)
+    grasp_K_3x3 = intrinsics_to_3x3(grasp_cam)
+    grasp_focal = compute_focal(grasp_cam)
+
+    # 📐 Pre-compute intrinsics (scene image resolution)
+    scene_img = Image.open(task.scene_image)
+    scene_cam = dynamic_intrinsics(task.camera, scene_img.width, scene_img.height)
+    scene_K_3x3 = intrinsics_to_3x3(scene_cam)
+
     # 1️⃣ GSAM: scene_image (no hand)
     print(f"  🎭 GSAM: scene_image (no hand)")
     output.gsam_scene = call_gsam(
         cfg.servers.gsam,
-        task.scene_image,
+        scene_b64,
         task.obj_description,
         include_hand=False,
         timeout=timeout,
@@ -277,7 +354,7 @@ def process_task(task: TaskInput, cfg: DictConfig) -> TaskOutput:
     print(f"  🎭 GSAM: generated_grasp (with hand)")
     output.gsam_grasp = call_gsam(
         cfg.servers.gsam,
-        task.generated_grasp,
+        grasp_b64,
         task.obj_description,
         include_hand=True,
         timeout=timeout,
@@ -286,22 +363,37 @@ def process_task(task: TaskInput, cfg: DictConfig) -> TaskOutput:
 
     # 4️⃣ HaMeR: hand reconstruction
     print(f"  🤚 HaMeR: hand reconstruction")
-    grasp_img = Image.open(task.generated_grasp)
-    scaled_cam = dynamic_intrinsics(task.camera, grasp_img.width, grasp_img.height)
-    focal = compute_focal(scaled_cam)
-    print(f"     └─ focal_length: {focal:.2f}")
+    print(f"     └─ focal_length: {grasp_focal:.2f}")
 
     output.hamer = call_hamer(
-        cfg.servers.hamer, task.generated_grasp, focal, timeout=timeout,
+        cfg.servers.hamer, grasp_b64, grasp_focal, timeout=timeout,
     )
     print(f"     └─ {output.hamer.status}: {output.hamer.message}")
 
     # 5️⃣ DA3: metric depth from grasp image
     print(f"  🌊 DA3: metric depth estimation (grasp)")
     output.da3_grasp = call_da3(
-        cfg.servers.da3, task.generated_grasp, task.camera, timeout=timeout,
+        cfg.servers.da3, grasp_b64, grasp_K_3x3, timeout=timeout,
     )
     print(f"     └─ {output.da3_grasp.status}: {output.da3_grasp.message}")
+
+    # 🔄 Rescale DA3 depth to metric using scene depth
+    print(f"  🔄 Rescaling DA3 depth to metric scale")
+    scene_depth = cv2.imread(str(task.depth), cv2.IMREAD_UNCHANGED).astype(np.float32) * cfg.scale.depth_scale
+    scene_mask_rle = extract_obj_mask_rle(output.gsam_scene)
+
+    rescaled_depth_b64, alpha, beta = rescale_da3_depth(
+        scene_depth=scene_depth,
+        scene_mask_rle=scene_mask_rle,
+        grasp_depth_b64=output.da3_grasp.depth_b64,
+        window_size=cfg.get("rescale_window_size", 20),
+    )
+
+    # Update DA3Result with rescaled depth
+    output.da3_grasp.rescaled_depth_b64 = rescaled_depth_b64
+    output.da3_grasp.alpha = alpha
+    output.da3_grasp.beta = beta
+    print(f"     └─ alpha={alpha:.4f}, beta={beta:.4f}")
 
     # 6️⃣ FDPose: encode mesh once, reuse for both calls
     mesh_b64 = encode_mesh_b64(output.scale.scaled_mesh)
@@ -312,29 +404,30 @@ def process_task(task: TaskInput, cfg: DictConfig) -> TaskOutput:
     scene_bbox = extract_obj_bbox(output.gsam_scene)
     output.fdpose_scene = call_fdpose(
         cfg.servers.fdpose,
-        task.scene_image,
+        scene_b64,
         scene_depth_b64,
         mesh_b64,
         scene_bbox,
-        task.camera,
+        scene_K_3x3,
         timeout=timeout,
     )
     print(f"     └─ {output.fdpose_scene.status}: {output.fdpose_scene.message}")
 
-    # 7️⃣ FDPose: grasp pose (DA3 depth)
-    print(f"  📐 FDPose: grasp pose (DA3 depth)")
+    # 7️⃣ FDPose: grasp pose (RESCALED DA3 depth) 🆕
+    print(f"  📐 FDPose: grasp pose (rescaled DA3 depth)")
     grasp_bbox = extract_obj_bbox(output.gsam_grasp)
     output.fdpose_grasp = call_fdpose(
         cfg.servers.fdpose,
-        task.generated_grasp,
-        output.da3_grasp.depth_b64,
+        grasp_b64,
+        output.da3_grasp.rescaled_depth_b64,  # 🆕 Use rescaled instead of raw
         mesh_b64,
         grasp_bbox,
-        task.camera,
+        grasp_K_3x3,
         timeout=timeout,
     )
     print(f"     └─ {output.fdpose_grasp.status}: {output.fdpose_grasp.message}")
 
+    output.grasp_cam = grasp_cam
     return output
 
 
@@ -344,7 +437,7 @@ def process_task(task: TaskInput, cfg: DictConfig) -> TaskOutput:
 
 
 def save_output(
-    task: TaskInput, result: TaskOutput, output_dir: Path, cfg: DictConfig
+    result: TaskOutput, output_dir: Path, cfg: DictConfig
 ) -> None:
     """💾 Save task output to directory."""
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -353,8 +446,8 @@ def save_output(
         save_visualizations(result, output_dir)
     if cfg.out.inter_out:
         save_intermediate(result, output_dir)
-        
-    save_out(task, result, output_dir)
+
+    save_out(result, output_dir, result.grasp_cam)
     print(f"  💾 Saved to: {output_dir}")
 
 
@@ -388,6 +481,19 @@ def save_visualizations(result: TaskOutput, output_dir: Path) -> None:
     if result.da3_grasp and result.da3_grasp.depth_vis_b64:
         img = decode_image_b64(result.da3_grasp.depth_vis_b64)
         cv2.imwrite(str(vis_dir / "da3_grasp_depth.png"), img)
+
+        # 🆕 Visualize rescaled depth
+        if result.da3_grasp.rescaled_depth_b64:
+            rescaled = decode_array_b64(result.da3_grasp.rescaled_depth_b64)
+
+            # Normalize to 0-255 for visualization
+            rescaled_vis = rescaled.copy()
+            rescaled_vis[rescaled_vis < 0] = 0
+            max_depth = np.percentile(rescaled_vis[rescaled_vis > 0], 99) if np.any(rescaled_vis > 0) else 3.0
+            rescaled_vis = np.clip(rescaled_vis / max_depth * 255, 0, 255).astype(np.uint8)
+            rescaled_vis = cv2.applyColorMap(rescaled_vis, cv2.COLORMAP_TURBO)
+
+            cv2.imwrite(str(vis_dir / "da3_grasp_depth_rescaled.png"), rescaled_vis)
 
     # 📐 FDPose visualizations
     if result.fdpose_scene and result.fdpose_scene.pose_vis_b64:
@@ -462,6 +568,18 @@ def save_intermediate(result: TaskOutput, output_dir: Path) -> None:
         depth = decode_array_b64(result.da3_grasp.depth_b64)
         np.save(data_dir / "da3_grasp_depth.npy", depth)
 
+        # 🆕 Save rescaled depth
+        if result.da3_grasp.rescaled_depth_b64:
+            rescaled = decode_array_b64(result.da3_grasp.rescaled_depth_b64)
+            np.save(data_dir / "da3_grasp_depth_rescaled.npy", rescaled)
+
+            # Save affine params
+            with open(data_dir / "da3_rescale_params.json", "w") as f:
+                json.dump({
+                    "alpha": result.da3_grasp.alpha,
+                    "beta": result.da3_grasp.beta,
+                }, f, indent=2)
+
     # 📐 FDPose poses
     if result.fdpose_scene and result.fdpose_scene.pose:
         with open(data_dir / "fdpose_scene.json", "w") as f:
@@ -477,22 +595,20 @@ def save_intermediate(result: TaskOutput, output_dir: Path) -> None:
 
 
 def save_out(
-    task: TaskInput, result: TaskOutput, output_dir: Path
+    result: TaskOutput, output_dir: Path, grasp_cam: CameraIntrinsics
 ) -> None:
     """📦 Save output in flat structure for downstream optim."""
     print(f"  📦 Saving output...")
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    grasp_img = Image.open(task.generated_grasp)
-    img_w, img_h = grasp_img.width, grasp_img.height
-    scaled_cam = dynamic_intrinsics(task.camera, img_w, img_h)
+    img_w, img_h = grasp_cam.width, grasp_cam.height
 
     # 📷 intrinsics.json (grasp image dynamic intrinsics)
     with open(output_dir / "intrinsics.json", "w") as f:
         json.dump({
-            "fx": scaled_cam.fx, "fy": scaled_cam.fy,
-            "ppx": scaled_cam.ppx, "ppy": scaled_cam.ppy,
-            "width": scaled_cam.width, "height": scaled_cam.height,
+            "fx": grasp_cam.fx, "fy": grasp_cam.fy,
+            "ppx": grasp_cam.ppx, "ppy": grasp_cam.ppy,
+            "width": grasp_cam.width, "height": grasp_cam.height,
             "depth_scale": 0.001,
         }, f, indent=2)
 
@@ -546,10 +662,10 @@ def save_out(
         with open(output_dir / "camera_params.json", "w") as f:
             json.dump({
                 "extrinsics": np.eye(3, 4).tolist(),
-                "fx": scaled_cam.fx / img_w,
-                "fy": scaled_cam.fy / img_h,
-                "cx": scaled_cam.ppx / img_w,
-                "cy": scaled_cam.ppy / img_h,
+                "fx": grasp_cam.fx / img_w,
+                "fy": grasp_cam.fy / img_h,
+                "cx": grasp_cam.ppx / img_w,
+                "cy": grasp_cam.ppy / img_h,
             }, f, indent=2)
 
 
@@ -580,7 +696,7 @@ def main(cfg: DictConfig) -> None:
 
         try:
             result = process_task(task, cfg)
-            save_output(task, result, output_dir / task.name, cfg)
+            save_output(result, output_dir / task.name, cfg)
             task_count += 1
             print(f"✅ Done: {task.name}")
         except Exception as e:

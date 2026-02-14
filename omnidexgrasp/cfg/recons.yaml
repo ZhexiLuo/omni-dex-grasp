@@ -6,7 +6,7 @@ servers:
   gsam: http://localhost:6001/predict
   hamer: http://localhost:6002/predict
   da3: http://localhost:6003/predict
-  fdpose: http://localhost:6004/predict
+  fdpose: http://localhost:6004/predict # run `ssh -f -N -L 6004:localhost:6004 rl-1` before `python -m recons.run`
   timeout: 120
 
 out:
@@ -21,6 +21,9 @@ scale:
   dbscan_min_samples: 10      # DBSCAN min cluster size
   stat_nb_neighbors: 20       # statistical outlier removal neighbors
   stat_std_ratio: 2.0         # statistical outlier removal std ratio
+
+# 🔄 Depth rescaling params
+rescale_window_size: 20       # window size around mask centroid for affine fit
 
 # 🔧 Hydra output control
 hydra:

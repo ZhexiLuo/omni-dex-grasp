@@ -207,7 +207,7 @@ class HaMeRModel:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class PredictRequest(BaseModel):
-    image_path: str
+    image_b64: str           # 🖼️ base64 encoded image (PNG/JPG raw bytes)
     focal_length: float
 
 
@@ -250,15 +250,11 @@ def predict(req: PredictRequest, request: Request) -> PredictResponse:
     """🤚 Reconstruct hand mesh from image."""
     model = request.app.state.model
     print(f"\n{'='*60}")
-    print(f"📨 New request: {req.image_path}")
+    print(f"📨 New request: image_b64 ({len(req.image_b64)} chars)")
 
-    image_path = Path(req.image_path)
-    if not image_path.exists():
-        return PredictResponse(status="error", message=f"Image not found: {req.image_path}")
-
-    img_cv2 = cv2.imread(str(image_path))
-    if img_cv2 is None:
-        return PredictResponse(status="error", message=f"Failed to read image: {req.image_path}")
+    img_bytes = base64.b64decode(req.image_b64)
+    img_pil = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+    img_cv2 = cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
 
     # 🔍 Detect hand
     hand_data = model.detect_best_hand(img_cv2)

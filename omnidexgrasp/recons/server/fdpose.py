@@ -76,16 +76,22 @@ class FDPoseModel:
 
     def estimate_pose(
         self,
-        image_path: str,
+        rgb: np.ndarray,
         depth: np.ndarray,
         mesh: trimesh.Trimesh,
         bbox: list[float],
         intrinsics: np.ndarray,
     ) -> dict:
-        """📐 Estimate 6D pose for a single object."""
+        """📐 Estimate 6D pose for a single object.
+
+        Args:
+            rgb: (H, W, 3) uint8 RGB numpy array.
+            depth: (H, W) float32 depth in meters.
+            mesh: trimesh.Trimesh object mesh.
+            bbox: [x1, y1, x2, y2] detection bbox.
+            intrinsics: (3, 3) float64 camera intrinsics.
+        """
         with self._lock:
-            # 1️⃣ Load RGB
-            rgb = np.array(Image.open(image_path).convert("RGB"))
             H, W = rgb.shape[:2]
 
             # 📏 Validate depth-RGB shape match
@@ -137,12 +143,30 @@ class FDPoseModel:
         mesh: trimesh.Trimesh,
         K: np.ndarray,
     ) -> np.ndarray:
-        """🎨 Generate pose visualization with 3D bbox and axes. Returns BGR image."""
+        """🎨 Generate pose visualization with mesh overlay, 3D bbox, and axes. Returns BGR image."""
+        H, W = rgb.shape[:2]
+
+        # 🧊 Render mesh at estimated pose with lighting
+        ob_in_cam = torch.tensor(pose, device="cuda", dtype=torch.float).unsqueeze(0)
+        color, depth_rendered, _ = nvdiffrast_render(
+            K=K, H=H, W=W, ob_in_cams=ob_in_cam,
+            glctx=self.estimator.glctx,
+            mesh_tensors=self.estimator.mesh_tensors,
+            use_light=True,
+        )
+        mesh_mask = depth_rendered[0].cpu().numpy() > 0
+        mesh_rgb = (color[0].cpu().numpy() * 255).astype(np.uint8)
+
+        # 🎨 Alpha-blend mesh overlay onto original image (RGB space)
+        alpha = 0.5
+        vis = rgb.copy()
+        vis[mesh_mask] = (alpha * mesh_rgb[mesh_mask] + (1 - alpha) * vis[mesh_mask]).astype(np.uint8)
+
+        # 📦 Draw 3D bbox and axes on top
+        vis_bgr = cv2.cvtColor(vis, cv2.COLOR_RGB2BGR)
         to_origin, extents = trimesh.bounds.oriented_bounds(mesh)
         bbox_3d = np.stack([-extents / 2, extents / 2], axis=0).reshape(2, 3)
         center_pose = pose @ np.linalg.inv(to_origin)
-
-        vis_bgr = cv2.cvtColor(rgb.copy(), cv2.COLOR_RGB2BGR)
         vis_bgr = draw_posed_3d_box(
             K, img=vis_bgr, ob_in_cam=center_pose, bbox=bbox_3d,
         )
@@ -175,7 +199,7 @@ class FDPoseModel:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class PredictRequest(BaseModel):
-    image_path: str
+    image_b64: str                     # 🖼️ base64 encoded image (PNG/JPG raw bytes)
     depth_b64: str                     # 📏 base64 encoded depth npy (H,W) float32, meters
     obj_mesh_b64: str                  # 📦 base64 encoded OBJ file content
     bbox: list[float]                  # [x1, y1, x2, y2]
@@ -218,12 +242,11 @@ def predict(req: PredictRequest, request: Request) -> PredictResponse:
     """📐 Estimate 6D object pose."""
     model: FDPoseModel = request.app.state.model
     print(f"\n{'='*60}")
-    print(f"📨 New request: {req.image_path}")
+    print(f"📨 New request: image_b64 ({len(req.image_b64)} chars)")
 
-    # 📋 Validate inputs
-    image_path = Path(req.image_path)
-    if not image_path.exists():
-        return PredictResponse(status="error", message=f"Image not found: {req.image_path}")
+    # 🖼️ Decode image
+    img_bytes = base64.b64decode(req.image_b64)
+    rgb = np.array(Image.open(io.BytesIO(img_bytes)).convert("RGB"))
 
     # 🧊 Decode mesh from base64
     mesh_bytes = base64.b64decode(req.obj_mesh_b64)
@@ -248,7 +271,7 @@ def predict(req: PredictRequest, request: Request) -> PredictResponse:
     # 📐 Estimate pose
     try:
         result = model.estimate_pose(
-            image_path=str(image_path),
+            rgb=rgb,
             depth=depth,
             mesh=mesh,
             bbox=req.bbox,

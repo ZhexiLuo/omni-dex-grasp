@@ -76,8 +76,10 @@ class DA3Result:
     message: str
     depth_b64: str = ""
     conf_b64: str = ""
-    is_metric: bool = False
     depth_vis_b64: str = ""
+    rescaled_depth_b64: str = ""  # 🆕 Rescaled to metric depth
+    alpha: float = 0.0            # 🆕 Affine scale factor
+    beta: float = 0.0             # 🆕 Affine shift offset
 
 
 @dataclass
@@ -103,6 +105,7 @@ class TaskOutput:
     da3_grasp: DA3Result | None = None
     fdpose_scene: FDPoseResult | None = None
     fdpose_grasp: FDPoseResult | None = None
+    grasp_cam: CameraIntrinsics | None = None  # 📐 precomputed grasp intrinsics
 
 
 # ══════════════════════════════════════════════════════════════════════════════

@@ -6,9 +6,7 @@ Usage: conda activate da3 && python -m recons.server.da3
 """
 import base64
 import io
-import os
 from dataclasses import dataclass
-from pathlib import Path
 
 import cv2
 import hydra
@@ -44,17 +42,18 @@ class DA3Model:
         print(f"✅ DA3 model loaded: {cfg.model.pretrained}")
         return cls(model=model, device=device, cfg=cfg)
 
-    def predict_depth(self, image_path: str, intrinsics: np.ndarray) -> dict:
+    def predict_depth(self, image: np.ndarray, intrinsics: np.ndarray) -> dict:
         """🌊 Run metric depth estimation on a single image.
 
-        Uses original image resolution for inference, then resizes back.
+        Args:
+            image: (H, W, 3) uint8 RGB numpy array.
+            intrinsics: (3, 3) camera intrinsics matrix.
         """
-        img = Image.open(image_path)
-        original_h, original_w = img.height, img.width
+        original_h, original_w = image.shape[:2]
         process_res = max(original_h, original_w)
 
         prediction = self.model.inference(
-            image=[image_path],
+            image=[image],
             intrinsics=intrinsics[None, ...],  # (1, 3, 3)
             process_res=process_res,
         )
@@ -70,7 +69,6 @@ class DA3Model:
         return {
             "depth": depth.astype(np.float32),
             "conf": conf.astype(np.float32) if conf is not None else None,
-            "is_metric": bool(prediction.is_metric),
         }
 
 
@@ -79,8 +77,8 @@ class DA3Model:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class PredictRequest(BaseModel):
-    image_path: str
-    intrinsics: list[list[float]]  # 3x3 camera intrinsics matrix
+    image_b64: str                    # 🖼️ base64 encoded image (PNG/JPG raw bytes)
+    intrinsics: list[list[float]]     # 3x3 camera intrinsics matrix
 
 
 class PredictResponse(BaseModel):
@@ -88,7 +86,6 @@ class PredictResponse(BaseModel):
     message: str
     depth_b64: str = ""      # 📏 base64 encoded depth npy (H,W) float32, meters
     conf_b64: str = ""       # 📊 base64 encoded confidence npy (H,W) float32
-    is_metric: bool = False
     depth_vis_b64: str = ""  # 🎨 base64 encoded colormap visualization
 
 
@@ -122,17 +119,17 @@ def predict(req: PredictRequest, request: Request) -> PredictResponse:
     """🌊 Estimate metric depth from RGB image."""
     model: DA3Model = request.app.state.model
     print(f"\n{'='*60}")
-    print(f"📨 New request: {req.image_path}")
+    print(f"📨 New request: image_b64 ({len(req.image_b64)} chars)")
 
-    image_path = Path(req.image_path)
-    if not image_path.exists():
-        return PredictResponse(status="error", message=f"Image not found: {req.image_path}")
+    img_bytes = base64.b64decode(req.image_b64)
+    img_pil = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+    img_np = np.array(img_pil)
 
     K = np.array(req.intrinsics, dtype=np.float32)
     if K.shape != (3, 3):
         return PredictResponse(status="error", message=f"Intrinsics must be 3x3, got {K.shape}")
 
-    result = model.predict_depth(str(image_path), K)
+    result = model.predict_depth(img_np, K)
 
     # 📦 Encode outputs to base64
     depth_b64 = encode_array_b64(result["depth"])
@@ -144,16 +141,15 @@ def predict(req: PredictRequest, request: Request) -> PredictResponse:
     depth_vis_b64 = base64.b64encode(vis_buffer).decode("utf-8")
 
     h, w = result["depth"].shape
-    print(f"  📏 Depth shape: ({h}, {w}), metric: {result['is_metric']}")
+    print(f"  📏 Depth shape: ({h}, {w})")
     print(f"  📊 Depth range: [{result['depth'].min():.3f}, {result['depth'].max():.3f}] m")
     print(f"🎉 Done!")
 
     return PredictResponse(
         status="success",
-        message=f"Depth estimated ({h}x{w}), metric={result['is_metric']}",
+        message=f"Depth estimated ({h}x{w})",
         depth_b64=depth_b64,
         conf_b64=conf_b64,
-        is_metric=result["is_metric"],
         depth_vis_b64=depth_vis_b64,
     )
 

@@ -4,12 +4,10 @@ POST /predict - Detect and segment objects/hands in image.
 
 Usage: python -m recons.server.server_gsam2
 """
-import os
 
 import base64
 import io
 from dataclasses import dataclass
-from pathlib import Path
 
 import cv2
 import hydra
@@ -127,7 +125,7 @@ class GSAM2Model:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class PredictRequest(BaseModel):
-    image_path: str
+    image_b64: str           # 🖼️ base64 encoded image (PNG/JPG raw bytes)
     text_prompt: str
     include_hand: bool = True
 
@@ -228,9 +226,9 @@ def predict(req: PredictRequest, request: Request) -> PredictResponse:
     """🔍 Detect and segment objects/hands."""
     model = request.app.state.model
     print(f"\n{'='*60}")
-    print(f"📨 New request: {req.image_path}")
-    image_path = Path(req.image_path)
-    image = Image.open(image_path).convert("RGB")
+    print(f"📨 New request: image_b64 ({len(req.image_b64)} chars)")
+    img_bytes = base64.b64decode(req.image_b64)
+    image = Image.open(io.BytesIO(img_bytes)).convert("RGB")
 
     text_prompt = req.text_prompt
     if req.include_hand:
