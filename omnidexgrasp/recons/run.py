@@ -96,10 +96,80 @@ def scale_and_center_mesh(mesh_path: Path, scale_factor: float) -> "trimesh.Trim
 
 
 def encode_mesh_b64(mesh: "trimesh.Trimesh") -> str:
-    """🧊 Encode trimesh to base64 OBJ string."""
-    buf = io.BytesIO()
-    mesh.export(buf, file_type="obj")
-    return base64.b64encode(buf.getvalue()).decode("utf-8")
+    """🧊 Encode trimesh to base64 OBJ string.
+
+    Args:
+        mesh: trimesh.Trimesh object with optional materials
+
+    Returns:
+        Base64-encoded OBJ binary string
+    """
+    # 📦 Export to OBJ format (returns str, not bytes)
+    obj_str = mesh.export(file_type="obj")
+    obj_bytes = obj_str.encode("utf-8")
+    return base64.b64encode(obj_bytes).decode("utf-8")
+
+
+def encode_mtl_file(task_dir: Path) -> str | None:
+    """📄 Encode MTL file to base64 string.
+
+    Args:
+        task_dir: Task directory containing material.mtl
+
+    Returns:
+        Base64-encoded MTL string, or None if file doesn't exist
+    """
+    mtl_path = task_dir / "material.mtl"
+    if not mtl_path.exists():
+        return None
+
+    # 📄 Read MTL file as text
+    mtl_content = mtl_path.read_text(encoding='utf-8')
+    return base64.b64encode(mtl_content.encode('utf-8')).decode('utf-8')
+
+
+def encode_texture_file(task_dir: Path, texture_filename: str) -> str | None:
+    """🖼️ Encode texture image to base64 string.
+
+    Args:
+        task_dir: Task directory containing texture file
+        texture_filename: Texture filename (e.g., 'shaded.png')
+
+    Returns:
+        Base64-encoded texture bytes, or None if file doesn't exist
+    """
+    texture_path = task_dir / texture_filename
+    if not texture_path.exists():
+        return None
+
+    # 🖼️ Read texture as binary
+    texture_bytes = texture_path.read_bytes()
+    return base64.b64encode(texture_bytes).decode('utf-8')
+
+
+def extract_texture_filename_from_mtl(task_dir: Path) -> str | None:
+    """🔍 Extract texture filename from MTL file.
+
+    Args:
+        task_dir: Task directory containing material.mtl
+
+    Returns:
+        Texture filename (e.g., 'shaded.png'), or None if not found
+    """
+    mtl_path = task_dir / "material.mtl"
+    if not mtl_path.exists():
+        return None
+
+    # 📄 Parse MTL to find map_Kd line
+    mtl_content = mtl_path.read_text(encoding='utf-8')
+    for line in mtl_content.splitlines():
+        line = line.strip()
+        if line.startswith('map_Kd '):
+            # Extract filename after 'map_Kd '
+            texture_filename = line.split('map_Kd ', 1)[1].strip()
+            return texture_filename
+
+    return None
 
 
 def encode_image_file_b64(image_path: Path) -> str:
@@ -252,22 +322,26 @@ def call_fdpose(
     image_b64: str,
     depth_b64: str,
     mesh_b64: str,
+    mtl_b64: str | None,
+    texture_b64: str | None,
+    texture_filename: str | None,
     bbox: list[float],
     intrinsics_3x3: list[list[float]],
     timeout: int,
 ) -> FDPoseResult:
     """📐 Call FDPose server for 6D pose estimation."""
-    resp = requests.post(
-        url,
-        json={
-            "image_b64": image_b64,
-            "depth_b64": depth_b64,
-            "obj_mesh_b64": mesh_b64,
-            "bbox": bbox,
-            "intrinsics": intrinsics_3x3,
-        },
-        timeout=timeout,
-    )
+    payload = {
+        "image_b64": image_b64,
+        "depth_b64": depth_b64,
+        "obj_mesh_b64": mesh_b64,
+        "bbox": bbox,
+        "intrinsics": intrinsics_3x3,
+        "obj_mtl_b64": mtl_b64,
+        "obj_texture_b64": texture_b64,
+        "texture_filename": texture_filename,
+    }
+
+    resp = requests.post(url, json=payload, timeout=timeout)
     resp.raise_for_status()
     data = resp.json()
     return FDPoseResult(
@@ -398,6 +472,16 @@ def process_task(task: TaskInput, cfg: DictConfig) -> TaskOutput:
     # 6️⃣ FDPose: encode mesh once, reuse for both calls
     mesh_b64 = encode_mesh_b64(output.scale.scaled_mesh)
 
+    # 📄 Encode MTL if present
+    mtl_b64 = encode_mtl_file(task.task_dir)
+
+    # 🖼️ Encode texture if MTL exists
+    texture_filename = None
+    texture_b64 = None
+    texture_filename = extract_texture_filename_from_mtl(task.task_dir)
+    texture_b64 = encode_texture_file(task.task_dir, texture_filename)
+    print(f"  🖼️ Texture: {texture_filename} encoded")
+
     # 6️⃣ FDPose: scene pose (real depth)
     print(f"  📐 FDPose: scene pose (real depth)")
     scene_depth_b64 = load_depth_as_b64(task.depth, cfg.scale.depth_scale)
@@ -407,6 +491,9 @@ def process_task(task: TaskInput, cfg: DictConfig) -> TaskOutput:
         scene_b64,
         scene_depth_b64,
         mesh_b64,
+        mtl_b64,           # 📄 MTL
+        texture_b64,       # 🖼️ Texture
+        texture_filename,  # 📝 Filename
         scene_bbox,
         scene_K_3x3,
         timeout=timeout,
@@ -421,6 +508,9 @@ def process_task(task: TaskInput, cfg: DictConfig) -> TaskOutput:
         grasp_b64,
         output.da3_grasp.rescaled_depth_b64,  # 🆕 Use rescaled instead of raw
         mesh_b64,
+        mtl_b64,           # 📄 MTL
+        texture_b64,       # 🖼️ Texture
+        texture_filename,  # 📝 Filename
         grasp_bbox,
         grasp_K_3x3,
         timeout=timeout,

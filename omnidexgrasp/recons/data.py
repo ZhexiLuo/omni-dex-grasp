@@ -25,6 +25,7 @@ class TaskInput:
     obj_description: str
     obj_mesh: Path
     depth: Path
+    obj_material: Path
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -159,4 +160,5 @@ def load_single_task(task_dir: Path) -> TaskInput:
         obj_description=cam_data["obj_description"],
         obj_mesh=task_dir / "base.obj",
         depth=task_dir / "depth.png",
+        obj_material=task_dir / "material.mtl",
     )

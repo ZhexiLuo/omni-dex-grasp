@@ -13,3 +13,6 @@
 [submodule "omnidexgrasp/thirdparty/EasyHOI"]
 	path = omnidexgrasp/thirdparty/EasyHOI
 	url = https://github.com/ZhexiLuo/EasyHOI
+[submodule "omnidexgrasp/thirdparty/megapose6d"]
+	path = omnidexgrasp/thirdparty/megapose6d
+	url = https://github.com/megapose6d/megapose6d.git

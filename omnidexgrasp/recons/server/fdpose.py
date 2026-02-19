@@ -6,7 +6,9 @@ Usage: conda activate fdpose && python -m recons.server.fdpose
 """
 import base64
 import io
+import shutil
 import sys
+import tempfile
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -201,7 +203,10 @@ class FDPoseModel:
 class PredictRequest(BaseModel):
     image_b64: str                     # 🖼️ base64 encoded image (PNG/JPG raw bytes)
     depth_b64: str                     # 📏 base64 encoded depth npy (H,W) float32, meters
-    obj_mesh_b64: str                  # 📦 base64 encoded OBJ file content
+    obj_mesh_b64: str                  # 🧊 base64 encoded OBJ file
+    obj_mtl_b64: str     # 📄 base64 encoded MTL file 
+    obj_texture_b64: str # 🖼️ base64 encoded texture image 
+    texture_filename: str  # 📝 texture filename (e.g., 'shaded.png')
     bbox: list[float]                  # [x1, y1, x2, y2]
     intrinsics: list[list[float]]      # 3x3 camera intrinsics matrix
 
@@ -248,58 +253,97 @@ def predict(req: PredictRequest, request: Request) -> PredictResponse:
     img_bytes = base64.b64decode(req.image_b64)
     rgb = np.array(Image.open(io.BytesIO(img_bytes)).convert("RGB"))
 
-    # 🧊 Decode mesh from base64
-    mesh_bytes = base64.b64decode(req.obj_mesh_b64)
-    mesh = trimesh.load(io.BytesIO(mesh_bytes), file_type="obj", force="mesh")
-
-    K = np.array(req.intrinsics, dtype=np.float64)  # FoundationPose expects float64 K
-    if K.shape != (3, 3):
-        return PredictResponse(status="error", message=f"Intrinsics must be 3x3, got {K.shape}")
-
-    if len(req.bbox) != 4:
-        return PredictResponse(status="error", message=f"Bbox must be [x1,y1,x2,y2], got len={len(req.bbox)}")
-
-    # 📏 Decode depth
-    depth = decode_array_b64(req.depth_b64)
-    if depth.dtype != np.float32:
-        depth = depth.astype(np.float32)
-
-    print(f"  📏 Depth shape: {depth.shape}, range: [{depth.min():.3f}, {depth.max():.3f}] m")
-    print(f"  📦 Bbox: {req.bbox}")
-    print(f"  🧊 Mesh: {len(mesh.vertices)} vertices (base64)")
-
-    # 📐 Estimate pose
+    # 🧊 Decode mesh with optional MTL and texture
+    # Create temporary directory for mesh files
+    temp_dir = tempfile.mkdtemp(prefix="fdpose_mesh_")
     try:
-        result = model.estimate_pose(
-            rgb=rgb,
-            depth=depth,
-            mesh=mesh,
-            bbox=req.bbox,
-            intrinsics=K,
+        # 📦 Decode and save OBJ file
+        mesh_bytes = base64.b64decode(req.obj_mesh_b64)
+        obj_path = Path(temp_dir) / "mesh.obj"
+        obj_path.write_bytes(mesh_bytes)
+
+        # 📄 Decode and save MTL file (must match OBJ's `mtllib material.mtl` directive)
+        mtl_bytes = base64.b64decode(req.obj_mtl_b64)
+        mtl_path = Path(temp_dir) / "material.mtl"
+        mtl_path.write_text(mtl_bytes.decode('utf-8'))
+        print(f"  📄 MTL file decoded: {len(mtl_bytes)} bytes")
+
+        # 🖼️ Decode and save texture file
+        texture_bytes = base64.b64decode(req.obj_texture_b64)
+        texture_path = Path(temp_dir) / req.texture_filename
+        texture_path.write_bytes(texture_bytes)
+        print(f"  🖼️ Texture decoded: {req.texture_filename}, {len(texture_bytes)} bytes")
+
+        # 🧊 Load mesh (trimesh auto-loads MTL + texture from same directory)
+        mesh = trimesh.load(str(obj_path), force="mesh")
+
+        K = np.array(req.intrinsics, dtype=np.float64)  # FoundationPose expects float64 K
+        if K.shape != (3, 3):
+            return PredictResponse(status="error", message=f"Intrinsics must be 3x3, got {K.shape}")
+
+        if len(req.bbox) != 4:
+            return PredictResponse(status="error", message=f"Bbox must be [x1,y1,x2,y2], got len={len(req.bbox)}")
+
+        # 📏 Decode depth
+        depth = decode_array_b64(req.depth_b64)
+        if depth.dtype != np.float32:
+            depth = depth.astype(np.float32)
+
+        print(f"  📏 Depth shape: {depth.shape}, range: [{depth.min():.3f}, {depth.max():.3f}] m")
+        print(f"  📦 Bbox: {req.bbox}")
+        print(f"  🧊 Mesh: {len(mesh.vertices)} vertices (base64)")
+
+        # 📊 Log material info if present
+        if hasattr(mesh, 'visual') and hasattr(mesh.visual, 'material'):
+            print(f"  🎨 Material loaded: {type(mesh.visual.material).__name__}")
+            if hasattr(mesh.visual.material, 'image') and mesh.visual.material.image is not None:
+                print(f"  🖼️ Texture image: {mesh.visual.material.image.size}")
+
+        # 📐 Estimate pose
+        try:
+            result = model.estimate_pose(
+                rgb=rgb,
+                depth=depth,
+                mesh=mesh,
+                bbox=req.bbox,
+                intrinsics=K,
+            )
+        except Exception as e:
+            print(f"  ❌ Pose estimation failed: {e}")
+            return PredictResponse(status="error", message=f"Pose estimation failed: {e}")
+
+        # 📦 Encode outputs
+        pose_list = result["pose"].tolist()
+        vis_b64 = encode_image_b64(result["vis"])
+        obj_mask_b64 = encode_image_b64(result["obj_mask"])
+
+        status = "warning" if result["is_degenerate"] else "success"
+        msg_suffix = " (⚠️ degenerate pose, may be unreliable)" if result["is_degenerate"] else ""
+
+        print(f"  📐 Pose estimated! {'⚠️ DEGENERATE' if result['is_degenerate'] else '✅'}")
+        print(f"  📍 Translation: [{result['pose'][0,3]:.4f}, {result['pose'][1,3]:.4f}, {result['pose'][2,3]:.4f}]")
+        print(f"🎉 Done!")
+
+        return PredictResponse(
+            status=status,
+            message=f"Pose estimated{msg_suffix}",
+            pose=pose_list,
+            pose_vis_b64=vis_b64,
+            obj_mask_b64=obj_mask_b64,
         )
+
     except Exception as e:
-        print(f"  ❌ Pose estimation failed: {e}")
-        return PredictResponse(status="error", message=f"Pose estimation failed: {e}")
+        # Clean up temp directory on error
+        print(f"  ❌ Error: {e}")
+        return PredictResponse(
+            status="error",
+            message=f"Failed to process request: {str(e)}"
+        )
 
-    # 📦 Encode outputs
-    pose_list = result["pose"].tolist()
-    vis_b64 = encode_image_b64(result["vis"])
-    obj_mask_b64 = encode_image_b64(result["obj_mask"])
-
-    status = "warning" if result["is_degenerate"] else "success"
-    msg_suffix = " (⚠️ degenerate pose, may be unreliable)" if result["is_degenerate"] else ""
-
-    print(f"  📐 Pose estimated! {'⚠️ DEGENERATE' if result['is_degenerate'] else '✅'}")
-    print(f"  📍 Translation: [{result['pose'][0,3]:.4f}, {result['pose'][1,3]:.4f}, {result['pose'][2,3]:.4f}]")
-    print(f"🎉 Done!")
-
-    return PredictResponse(
-        status=status,
-        message=f"Pose estimated{msg_suffix}",
-        pose=pose_list,
-        pose_vis_b64=vis_b64,
-        obj_mask_b64=obj_mask_b64,
-    )
+    finally:
+        # 🧹 Clean up temporary directory
+        if 'temp_dir' in locals():
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 @hydra.main(config_path="../../cfg/model", config_name="fdpose", version_base=None)
