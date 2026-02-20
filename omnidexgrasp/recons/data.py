@@ -25,7 +25,6 @@ class TaskInput:
     obj_description: str
     obj_mesh: Path
     depth: Path
-    obj_material: Path
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -70,31 +69,6 @@ class ScaleResult:
 
 
 @dataclass
-class DA3Result:
-    """🌊 DA3 metric depth estimation result."""
-
-    status: str
-    message: str
-    depth_b64: str = ""
-    conf_b64: str = ""
-    depth_vis_b64: str = ""
-    rescaled_depth_b64: str = ""  # 🆕 Rescaled to metric depth
-    alpha: float = 0.0            # 🆕 Affine scale factor
-    beta: float = 0.0             # 🆕 Affine shift offset
-
-
-@dataclass
-class FDPoseResult:
-    """📐 FoundationPose 6D pose estimation result."""
-
-    status: str
-    message: str
-    pose: list[list[float]] = field(default_factory=list)  # 4x4
-    pose_vis_b64: str = ""
-    obj_mask_b64: str = ""
-
-
-@dataclass
 class TaskOutput:
     """📤 Complete output data for a single task."""
 
@@ -103,9 +77,6 @@ class TaskOutput:
     gsam_grasp: GSAMResult | None = None
     hamer: HaMeRResult | None = None
     scale: ScaleResult | None = None
-    da3_grasp: DA3Result | None = None
-    fdpose_scene: FDPoseResult | None = None
-    fdpose_grasp: FDPoseResult | None = None
     grasp_cam: CameraIntrinsics | None = None  # 📐 precomputed grasp intrinsics
 
 
@@ -160,5 +131,4 @@ def load_single_task(task_dir: Path) -> TaskInput:
         obj_description=cam_data["obj_description"],
         obj_mesh=task_dir / "base.obj",
         depth=task_dir / "depth.png",
-        obj_material=task_dir / "material.mtl",
     )
