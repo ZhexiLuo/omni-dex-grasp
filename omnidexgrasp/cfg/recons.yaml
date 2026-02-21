@@ -26,6 +26,7 @@ megapose6d:
   n_refiner_iterations: 5
   n_pose_hypotheses: 5
   bsz_images: 64
+  n_workers: 1    # 1 worker per renderer to avoid EGL context exhaustion (9→3)
 
 # 🔧 Hydra output control
 hydra:
