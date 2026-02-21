@@ -235,26 +235,16 @@ def save_visualizations(result: TaskOutput, output_dir: Path) -> None:
     vis_dir = output_dir / "vis"
     vis_dir.mkdir(exist_ok=True)
 
-    # 🎭 GSAM scene
-    if result.gsam_scene and result.gsam_scene.annotated_b64:
-        img = decode_image_b64(result.gsam_scene.annotated_b64)
-        cv2.imwrite(str(vis_dir / "gsam_scene_annotated.jpg"), img)
-    if result.gsam_scene and result.gsam_scene.mask_b64:
-        img = decode_image_b64(result.gsam_scene.mask_b64)
-        cv2.imwrite(str(vis_dir / "gsam_scene_mask.png"), img)
-
-    # 🎭 GSAM grasp
-    if result.gsam_grasp and result.gsam_grasp.annotated_b64:
-        img = decode_image_b64(result.gsam_grasp.annotated_b64)
-        cv2.imwrite(str(vis_dir / "gsam_grasp_annotated.jpg"), img)
-    if result.gsam_grasp and result.gsam_grasp.mask_b64:
-        img = decode_image_b64(result.gsam_grasp.mask_b64)
-        cv2.imwrite(str(vis_dir / "gsam_grasp_mask.png"), img)
-
-    # 🤚 HaMeR mask
-    if result.hamer and result.hamer.mask_b64:
-        img = decode_image_b64(result.hamer.mask_b64)
-        cv2.imwrite(str(vis_dir / "hamer_mask.png"), img)
+    items = [
+        (result.gsam_scene and result.gsam_scene.annotated_b64, "gsam_scene_annotated.jpg"),
+        (result.gsam_scene and result.gsam_scene.mask_b64, "gsam_scene_mask.png"),
+        (result.gsam_grasp and result.gsam_grasp.annotated_b64, "gsam_grasp_annotated.jpg"),
+        (result.gsam_grasp and result.gsam_grasp.mask_b64, "gsam_grasp_mask.png"),
+        (result.hamer and result.hamer.mask_b64, "hamer_mask.png"),
+    ]
+    for b64, filename in items:
+        if b64:
+            cv2.imwrite(str(vis_dir / filename), decode_image_b64(b64))
 
 
 def save_intermediate(result: TaskOutput, output_dir: Path) -> None:
@@ -326,8 +316,6 @@ def save_out(
     result: TaskOutput, output_dir: Path, grasp_cam: CameraIntrinsics
 ) -> None:
     """📦 Save output in flat structure for downstream optim."""
-    print(f"  📦 Saving output...")
-    output_dir.mkdir(parents=True, exist_ok=True)
 
     img_w, img_h = grasp_cam.width, grasp_cam.height
 
@@ -369,15 +357,14 @@ def save_out(
         }, output_dir / "hand_params.pt")
 
     # 📷 camera_params.json (normalized intrinsics + identity extrinsics)
-    if result.hamer:
-        with open(output_dir / "camera_params.json", "w") as f:
-            json.dump({
-                "extrinsics": np.eye(3, 4).tolist(),
-                "fx": grasp_cam.fx / img_w,
-                "fy": grasp_cam.fy / img_h,
-                "cx": grasp_cam.ppx / img_w,
-                "cy": grasp_cam.ppy / img_h,
-            }, f, indent=2)
+    with open(output_dir / "camera_params.json", "w") as f:
+        json.dump({
+            "extrinsics": np.eye(3, 4).tolist(),
+            "fx": grasp_cam.fx / img_w,
+            "fy": grasp_cam.fy / img_h,
+            "cx": grasp_cam.ppx / img_w,
+            "cy": grasp_cam.ppy / img_h,
+        }, f, indent=2)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

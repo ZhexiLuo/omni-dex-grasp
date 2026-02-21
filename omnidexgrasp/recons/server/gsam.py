@@ -100,7 +100,11 @@ class GSAM2Model:
         selected = []
 
         # 🎯 Object: must overlap center region
-        center_objs = [d for d in obj_dets if d["box"][0] < cx1 and d["box"][2] > cx0 and d["box"][1] < cy1 and d["box"][3] > cy0]
+        center_objs = [
+            d for d in obj_dets
+            if d["box"][0] < cx1 and d["box"][2] > cx0
+            and d["box"][1] < cy1 and d["box"][3] > cy0
+        ]
         if center_objs:
             best = max(center_objs, key=lambda d: d["score"])
             selected.append(best)
@@ -176,7 +180,7 @@ def generate_visuals(
         annotated_b64: Detection visualization (JPEG base64)
         mask_b64: Combined mask (PNG base64)
     """
-    h, w = masks.shape[1], masks.shape[2]
+    _, h, w = masks.shape
     print(f"🎨 Generating visualizations...")
 
     # 🖼️ Detection visualization
@@ -243,7 +247,7 @@ def predict(req: PredictRequest, request: Request) -> PredictResponse:
     boxes = np.array([d["box"] for d in dets])
     masks = model.segment(np.array(image), boxes)
 
-    h, w = masks.shape[1], masks.shape[2]
+    _, h, w = masks.shape
     detections = build_response_detections(dets, masks)
     annotated_b64, mask_b64 = generate_visuals(np.array(image), masks, dets, model.cfg)
     print(f"🎉 Done! {len(detections)} objects detected")

@@ -6,7 +6,6 @@ import numpy as np
 import open3d as o3d
 import pycocotools.mask as mask_util
 import trimesh
-from sklearn.cluster import DBSCAN
 
 from utils.camera import CameraIntrinsics, dynamic_intrinsics
 
@@ -26,14 +25,58 @@ def decode_mask_rle(mask_rle: dict) -> np.ndarray:
     return mask_util.decode(rle)
 
 
+def preprocess_depth(
+    depth_uint16: np.ndarray,
+    mask: np.ndarray,
+    edge_erode_px: int = 3,
+    bilateral_d: int = 5,
+    bilateral_sigma_color: float = 50.0,
+    bilateral_sigma_space: float = 5.0,
+) -> tuple[np.ndarray, np.ndarray]:
+    """🧹 Preprocess D435 depth: spatial smoothing + edge artifact removal.
+
+    Equivalent to librealsense spatial_filter + mask erosion.
+    Removes "flying pixels" at object boundaries before point cloud projection.
+
+    Args:
+        depth_uint16: Raw depth (H, W) uint16 in mm.
+        mask: Binary object mask (H, W) uint8.
+        edge_erode_px: Erode mask by N pixels to exclude boundary flying pixels.
+        bilateral_d: bilateralFilter kernel diameter.
+        bilateral_sigma_color: Depth value sigma in mm; controls edge preservation
+            (pixels differing more than this are not blended). Typical: 50.0.
+            ⚠️  Large values (>200) cause zero-depth holes to bleed into valid regions.
+        bilateral_sigma_space: Space sigma (spatial smoothing radius, pixels).
+
+    Returns:
+        (filtered_depth_uint16, eroded_mask): Both (H, W).
+    """
+    # 🌊 Edge-preserving spatial smoothing (≈ librealsense spatial_filter)
+    depth_f = depth_uint16.astype(np.float32)
+    depth_f = cv2.bilateralFilter(depth_f, bilateral_d, bilateral_sigma_color, bilateral_sigma_space)
+    filtered = depth_f.astype(np.uint16)
+
+    # ✂️ Erode mask to exclude boundary flying pixels
+    if edge_erode_px > 0:
+        kernel = np.ones((edge_erode_px * 2 + 1, edge_erode_px * 2 + 1), np.uint8)
+        eroded_mask = cv2.erode(mask, kernel, iterations=1)
+    else:
+        eroded_mask = mask
+
+    return filtered, eroded_mask
+
+
 def depth_to_pointcloud(
     depth_path: Path,
     mask: np.ndarray,
     camera: CameraIntrinsics,
     depth_scale: float = 0.001,
     max_depth_m: float = 3.0,
+    edge_erode_px: int = 3,
 ) -> np.ndarray:
     """🌊 Unproject masked depth to 3D point cloud via pinhole model.
+
+    Applies 2D preprocessing (spatial filter + mask erosion) before projection.
 
     Args:
         depth_path: Path to depth.png (uint16, mm).
@@ -41,6 +84,7 @@ def depth_to_pointcloud(
         camera: Camera intrinsic parameters.
         depth_scale: Depth unit conversion factor (default 0.001 = mm→meters).
         max_depth_m: Maximum valid depth in meters.
+        edge_erode_px: Pixels to erode from mask edge (removes flying pixels).
 
     Returns:
         Point cloud (N, 3) float32 in meters.
@@ -52,12 +96,12 @@ def depth_to_pointcloud(
     if mask.shape[:2] != (H, W):
         mask = cv2.resize(mask, (W, H), interpolation=cv2.INTER_NEAREST)
 
-    depth_m = depth_raw.astype(np.float32) * depth_scale
+    # 🧹 2D preprocessing: spatial smoothing + mask erosion
+    depth_filt, mask = preprocess_depth(depth_raw, mask, edge_erode_px=edge_erode_px)
 
-    # 📐 Reuse dynamic_intrinsics() to scale camera to depth resolution
+    depth_m = depth_filt.astype(np.float32) * depth_scale
     cam = dynamic_intrinsics(camera, W, H)
 
-    # 🎯 Valid mask: in-range depth AND object mask
     valid = (depth_m > 0) & (depth_m < max_depth_m) & np.isfinite(depth_m) & (mask > 0)
 
     u, v = np.meshgrid(np.arange(W), np.arange(H))
@@ -70,56 +114,23 @@ def depth_to_pointcloud(
 
 def denoise_pointcloud(
     points: np.ndarray,
-    dbscan_eps: float = 0.005,
-    dbscan_min_samples: int = 10,
-    stat_nb_neighbors: int = 20,
-    stat_std_ratio: float = 2.0,
+    nb_neighbors: int = 20,
+    std_ratio: float = 2.0,
 ) -> np.ndarray:
-    """🧹 Denoise point cloud: DBSCAN clustering + statistical outlier removal.
+    """🧹 Remove statistical outliers from point cloud (open3d).
 
     Args:
         points: Input point cloud (N, 3).
-        dbscan_eps: DBSCAN neighborhood radius.
-        dbscan_min_samples: DBSCAN minimum cluster size.
-        stat_nb_neighbors: Statistical outlier removal neighbor count.
-        stat_std_ratio: Statistical outlier removal std ratio.
+        nb_neighbors: Neighbors used to compute mean distance.
+        std_ratio: Points beyond mean + std_ratio*std are removed.
 
     Returns:
         Cleaned point cloud (M, 3).
     """
-    if points.shape[0] < dbscan_min_samples:
-        return points
-
-    # 🔬 DBSCAN: keep largest cluster + nearby clusters
-    labels = DBSCAN(eps=dbscan_eps, min_samples=dbscan_min_samples).fit_predict(points)
-    unique = set(labels) - {-1}
-    if not unique:
-        return points
-
-    clusters = {l: points[labels == l] for l in unique}
-    main_label = max(clusters, key=lambda l: len(clusters[l]))
-    main_pts = clusters[main_label]
-
-    pcd_main = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(main_pts))
-    kdtree = o3d.geometry.KDTreeFlann(pcd_main)
-    bbox_extent = np.max(pcd_main.get_max_bound() - pcd_main.get_min_bound())
-    dist_thresh = bbox_extent * 0.5
-
-    keep_labels = {main_label}
-    for l, cpts in clusters.items():
-        if l != main_label:
-            centroid = cpts.mean(axis=0)
-            _, _, dist_sq = kdtree.search_knn_vector_3d(centroid, 1)
-            if np.sqrt(dist_sq[0]) <= dist_thresh:
-                keep_labels.add(l)
-
-    points = points[np.isin(labels, list(keep_labels))]
-
-    # 📊 Statistical outlier removal
     if points.shape[0] == 0:
         return points
     pcd = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(points))
-    _, ind = pcd.remove_statistical_outlier(stat_nb_neighbors, stat_std_ratio)
+    _, ind = pcd.remove_statistical_outlier(nb_neighbors, std_ratio)
     return points[ind]
 
 
