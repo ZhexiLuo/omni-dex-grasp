@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterator
 
+import numpy as np
 import yaml
 
 from utils.camera import CameraIntrinsics
@@ -66,6 +67,33 @@ class ScaleResult:
     pcd_max_extent: float
     mesh_max_extent: float
     scaled_mesh: Any = None  # trimesh.Trimesh, kept in memory
+
+
+@dataclass
+class PoseEstInput:
+    """🎯 Standard input for a single MegaPose6D inference call.
+
+    Both scene and grasp share this structure. The only difference is how K is loaded:
+    - scene: load_k_from_yaml(datasets/task/camera.yaml)
+    - grasp: load_k_from_json(out/task/intrinsics.json)
+    """
+
+    rgb: np.ndarray           # [H, W, 3] uint8 RGB image
+    K: np.ndarray             # [3, 3] float32 camera intrinsics matrix
+    bbox: np.ndarray          # [4] float32 detection bbox in XYXY format
+    label: str                # object label (= task name)
+    mesh_path: Path           # absolute path to scaled_mesh.obj
+    depth: np.ndarray | None  # [H, W] float32 depth in meters; None = no depth (grasp)
+
+
+@dataclass
+class PoseEstResult:
+    """🎯 MegaPose6D pose estimation result."""
+
+    label: str               # object label (= task name)
+    pose: list[list[float]]  # 4x4 T_CO matrix (object in camera frame), row-major
+    score: float             # pose confidence score [0, 1]
+    image_key: str           # "scene" | "grasp"
 
 
 @dataclass

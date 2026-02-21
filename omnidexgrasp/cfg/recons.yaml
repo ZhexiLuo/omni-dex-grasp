@@ -19,6 +19,14 @@ scale:
   stat_nb_neighbors: 80       # statistical outlier removal: neighbor count
   stat_std_ratio: 2.0         # statistical outlier removal: std threshold
 
+# 🎯 MegaPose6D pose estimation config (used by pose_est.py)
+megapose6d:
+  scene_model: "megapose-1.0-RGB-multi-hypothesis-icp"
+  grasp_model: "megapose-1.0-RGB-multi-hypothesis"
+  n_refiner_iterations: 5
+  n_pose_hypotheses: 5
+  bsz_images: 64
+
 # 🔧 Hydra output control
 hydra:
   run:

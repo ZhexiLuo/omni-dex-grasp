@@ -99,7 +99,6 @@ class GSAM2Model:
         hand_dets = [d for d in dets if d["is_hand"]]
         selected = []
 
-        # 🎯 Object: must overlap center region
         center_objs = [
             d for d in obj_dets
             if d["box"][0] < cx1 and d["box"][2] > cx0
@@ -110,15 +109,14 @@ class GSAM2Model:
             selected.append(best)
             print(f"  🎯 Object: '{best['label']}' score={best['score']:.3f} ({len(center_objs)}/{len(obj_dets)} in center)")
         else:
-            print(f"  ⚠️ No object in center region")
+            print("  ⚠️ No object in center region")
 
-        # 🤚 Hand: no center filter
         if include_hand and hand_dets:
             best = max(hand_dets, key=lambda d: d["score"])
             selected.append(best)
             print(f"  🤚 Hand: score={best['score']:.3f}")
         elif include_hand:
-            print(f"  ⚠️ No hand detections found")
+            print("  ⚠️ No hand detections found")
 
         print(f"  🔍 Selected: {len(dets)} → {len(selected)} detections")
         return selected
@@ -155,8 +153,8 @@ class PredictResponse(BaseModel):
 # 🔧 Helpers
 # ══════════════════════════════════════════════════════════════════════════════
 
-def build_response_detections(dets: list[dict], masks: np.ndarray) -> list[Detection]:
-    """📦 Convert to API response format with RLE masks."""
+def encode_detections(dets: list[dict], masks: np.ndarray) -> list[Detection]:
+    """📦 Encode detections with RLE masks for API response."""
     result = []
     for det, mask in zip(dets, masks):
         rle = mask_util.encode(np.asfortranarray(mask.astype(np.uint8)))
@@ -234,9 +232,8 @@ def predict(req: PredictRequest, request: Request) -> PredictResponse:
     img_bytes = base64.b64decode(req.image_b64)
     image = Image.open(io.BytesIO(img_bytes)).convert("RGB")
 
-    text_prompt = req.text_prompt
+    text_prompt = f"{req.text_prompt.rstrip('. ')}. hand." if req.include_hand else req.text_prompt
     if req.include_hand:
-        text_prompt = f"{text_prompt.rstrip('. ')}. hand."
         print(f"  🤚 Auto-appended 'hand.' to prompt: '{text_prompt}'")
 
     dets = model.detect(image, text_prompt)
@@ -245,18 +242,18 @@ def predict(req: PredictRequest, request: Request) -> PredictResponse:
         return PredictResponse(status="warning", message="No detections found")
 
     boxes = np.array([d["box"] for d in dets])
-    masks = model.segment(np.array(image), boxes)
+    image_rgb = np.array(image)
+    masks = model.segment(image_rgb, boxes)
 
-    _, h, w = masks.shape
-    detections = build_response_detections(dets, masks)
-    annotated_b64, mask_b64 = generate_visuals(np.array(image), masks, dets, model.cfg)
+    detections = encode_detections(dets, masks)
+    annotated_b64, mask_b64 = generate_visuals(image_rgb, masks, dets, model.cfg)
     print(f"🎉 Done! {len(detections)} objects detected")
 
     return PredictResponse(
         status="success",
         message=f"Detected {len(detections)} objects",
         detections=detections,
-        img_size=[h, w],
+        img_size=list(masks.shape[1:]),
         annotated_image_b64=annotated_b64,
         mask_image_b64=mask_b64,
     )
