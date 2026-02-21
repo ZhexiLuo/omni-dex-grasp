@@ -1,5 +1,10 @@
 """📷 Camera utilities for intrinsic parameter computation."""
+import json
 from dataclasses import dataclass
+from pathlib import Path
+
+import numpy as np
+import yaml
 
 
 @dataclass
@@ -48,5 +53,24 @@ def compute_focal(intrinsics: CameraIntrinsics) -> float:
         Average of fx and fy as focal length.
     """
     return (intrinsics.fx + intrinsics.fy) / 2
+
+
+def load_k_from_yaml(camera_yaml: Path) -> np.ndarray:
+    """Load 3x3 K matrix from camera.yaml."""
+    with open(camera_yaml) as f:
+        data = yaml.safe_load(f)
+    return np.array(
+        [[data["fx"], 0, data["ppx"]], [0, data["fy"], data["ppy"]], [0, 0, 1]],
+        dtype=np.float32,
+    )
+
+
+def load_k_from_json(intrinsics_json: Path) -> np.ndarray:
+    """Load 3x3 K matrix from intrinsics.json."""
+    data = json.loads(intrinsics_json.read_text())
+    return np.array(
+        [[data["fx"], 0, data["ppx"]], [0, data["fy"], data["ppy"]], [0, 0, 1]],
+        dtype=np.float32,
+    )
 
 

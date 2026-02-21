@@ -26,6 +26,7 @@ from megapose.utils.tensor_collection import PandasTensorCollection
 from omegaconf import DictConfig
 from PIL import Image
 
+import recons.panda3d_batch_renderer_wrapper  # apply sequential renderer patch (megapose6d issue #66)
 from recons.data import PoseEstInput, PoseEstResult
 from utils.camera import load_k_from_json, load_k_from_yaml
 
@@ -68,10 +69,12 @@ class MegaPoseEstimator:
         self.estimator = load_named_model(
             cfg.scene_model,
             object_dataset=object_dataset,
+            n_workers=cfg.get("n_workers", 1),
             bsz_images=cfg.bsz_images,
         ).cuda()
-        # Build renderer once; render_scene() uses label to select object
-        self.renderer = Panda3dSceneRenderer(object_dataset)
+        # Defer renderer construction until first render_mask call to avoid EGL context exhaustion
+        self._object_dataset = object_dataset   # stored for lazy renderer creation
+        self._renderer: Panda3dSceneRenderer | None = None  # init deferred to first render_mask call
         self.cfg = cfg
 
     def estimate(self, inp: PoseEstInput) -> PoseEstResult:
@@ -113,12 +116,14 @@ class MegaPoseEstimator:
         Returns:
             [H, W] uint8 mask (0=background, 255=object).
         """
+        if self._renderer is None:
+            self._renderer = Panda3dSceneRenderer(self._object_dataset)  # deferred: workers already init'd
         h, w = img_hw
         camera = CameraData(K=K.astype(np.float64), resolution=(w, h))  # resolution=(W, H)
         obj_data = ObjectData(label=label, TWO=Transform(pose_4x4))
         cam_p3d, obj_p3d = convert_scene_observation_to_panda3d(camera, [obj_data])
         lights = [Panda3dLightData(light_type="ambient", color=(1.0, 1.0, 1.0, 1))]
-        renderings = self.renderer.render_scene(obj_p3d, [cam_p3d], lights, render_binary_mask=True)
+        renderings = self._renderer.render_scene(obj_p3d, [cam_p3d], lights, render_depth=True, render_binary_mask=True)
         return renderings[0].binary_mask.astype(np.uint8) * 255
 
 
@@ -257,8 +262,10 @@ def main(cfg: DictConfig) -> None:
             process_task(task_dir, output_dir, estimator)
             print("  ✅ Done")
         except Exception as e:
+            import traceback
             failed.append(task_dir.name)
             print(f"  ❌ {type(e).__name__}: {e}")
+            traceback.print_exc()
 
     print(f"\n🎉 Done: {len(valid_tasks) - len(failed)} OK, {len(failed)} failed")
     if failed:
