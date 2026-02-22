@@ -42,13 +42,12 @@ def _build_detections(label: str, bbox: np.ndarray) -> PandasTensorCollection:
     )
 
 
-def _overlay_mask(rgb: np.ndarray, mask: np.ndarray, alpha: float = 0.5) -> np.ndarray:
-    """Overlay green mask region onto RGB image for visualization."""
-    overlay = rgb.copy()
-    overlay[mask > 0] = (
-        (1 - alpha) * rgb[mask > 0] + alpha * np.array([0, 200, 0])
-    ).astype(np.uint8)
-    return overlay
+def _composite_render(bg: np.ndarray, render_rgb: np.ndarray, mask: np.ndarray, alpha: float = 1) -> np.ndarray:
+    """Composite textured render onto background using mask."""
+    result = bg.copy()
+    m = mask > 0
+    result[m] = ((1 - alpha) * bg[m] + alpha * render_rgb[m]).astype(np.uint8)
+    return result
 
 
 # ── MegaPoseEstimator: load once, run for all tasks ───────────────────────────
@@ -104,27 +103,26 @@ class MegaPoseEstimator:
         image_key = "scene" if use_icp else "grasp"
         return PoseEstResult(label=inp.label, pose=pose.tolist(), score=score, image_key=image_key)
 
-    def render_mask(self, label: str, pose_4x4: np.ndarray, K: np.ndarray, img_hw: tuple[int, int]) -> np.ndarray:
-        """Render binary object mask from an estimated pose.
-
-        Args:
-            label: object label matching a RigidObject in the dataset.
-            pose_4x4: T_CO [4,4] float32.
-            K: camera intrinsics [3,3] float32.
-            img_hw: (height, width) of the target image.
+    def render_mask(self, label: str, pose_4x4: np.ndarray, K: np.ndarray, img_hw: tuple[int, int]) -> tuple[np.ndarray, np.ndarray]:
+        """Render binary mask and textured RGB from an estimated pose.
 
         Returns:
-            [H, W] uint8 mask (0=background, 255=object).
+            mask: [H, W] uint8 (0=background, 255=object).
+            rgb:  [H, W, 3] uint8 textured render.
         """
         if self._renderer is None:
             self._renderer = Panda3dSceneRenderer(self._object_dataset)  # deferred: workers already init'd
         h, w = img_hw
-        camera = CameraData(K=K.astype(np.float64), resolution=(w, h))  # resolution=(W, H)
+        camera = CameraData(K=K.astype(np.float64), resolution=(h, w), TWC=Transform(np.eye(4)))  # resolution=(H,W); TWC=identity: pose in camera frame
         obj_data = ObjectData(label=label, TWO=Transform(pose_4x4))
         cam_p3d, obj_p3d = convert_scene_observation_to_panda3d(camera, [obj_data])
         lights = [Panda3dLightData(light_type="ambient", color=(1.0, 1.0, 1.0, 1))]
-        renderings = self._renderer.render_scene(obj_p3d, [cam_p3d], lights, render_depth=True, render_binary_mask=True)
-        return renderings[0].binary_mask.astype(np.uint8) * 255
+        renderings = self._renderer.render_scene(obj_p3d, [cam_p3d], lights, render_depth=True)
+        # Compute binary mask from depth (workaround: render_binary_mask=True has bug in thirdparty)
+        depth = renderings[0].depth  # [H, W, 1]
+        mask = (depth[..., 0] > 0).astype(np.uint8) * 255
+        rgb = renderings[0].rgb      # [H, W, 3] uint8
+        return mask, rgb
 
 
 # ── Input builders ─────────────────────────────────────────────────────────────
@@ -180,17 +178,17 @@ def save_pose_output(
 
     # Render grasp object mask (saved to out/ for downstream use)
     grasp_pose = np.array(grasp_result.pose, dtype=np.float32)
-    grasp_mask = estimator.render_mask(grasp_inp.label, grasp_pose, grasp_inp.K, grasp_inp.rgb.shape[:2])
+    grasp_mask, grasp_render = estimator.render_mask(grasp_inp.label, grasp_pose, grasp_inp.K, grasp_inp.rgb.shape[:2])
     Image.fromarray(grasp_mask).save(task_out / "obj_mask.png")
 
     # Render scene mask for visualization overlay only
     scene_pose = np.array(scene_result.pose, dtype=np.float32)
-    scene_mask = estimator.render_mask(scene_inp.label, scene_pose, scene_inp.K, scene_inp.rgb.shape[:2])
+    scene_mask, scene_render = estimator.render_mask(scene_inp.label, scene_pose, scene_inp.K, scene_inp.rgb.shape[:2])
 
     cv2.imwrite(str(vis_dir / "pose_scene.jpg"),
-                cv2.cvtColor(_overlay_mask(scene_inp.rgb, scene_mask), cv2.COLOR_RGB2BGR))
+                cv2.cvtColor(_composite_render(scene_inp.rgb, scene_render, scene_mask), cv2.COLOR_RGB2BGR))
     cv2.imwrite(str(vis_dir / "pose_grasp.jpg"),
-                cv2.cvtColor(_overlay_mask(grasp_inp.rgb, grasp_mask), cv2.COLOR_RGB2BGR))
+                cv2.cvtColor(_composite_render(grasp_inp.rgb, grasp_render, grasp_mask), cv2.COLOR_RGB2BGR))
 
 
 # ── Per-task processing ────────────────────────────────────────────────────────

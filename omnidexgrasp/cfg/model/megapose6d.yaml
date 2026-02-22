@@ -14,8 +14,3 @@ n_pose_hypotheses: 5       # number of pose hypotheses (multi-hypothesis K=5)
 # GPU memory control (reduce to 32 on OOM)
 bsz_images: 128
 
-# Hydra output control (consistent with other model yamls)
-hydra:
-  run:
-    dir: .
-  output_subdir: null

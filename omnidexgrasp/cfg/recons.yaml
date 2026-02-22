@@ -1,4 +1,8 @@
 # 🔄 Reconstruction Pipeline Config
+defaults:
+  - model/megapose6d@megapose6d  # load cfg/model/megapose6d.yaml under cfg.megapose6d
+  - _self_
+
 datasets: ../datasets
 output: ../out
 
@@ -9,7 +13,7 @@ servers:
 
 out:
   vis: true           # 📊 Output visualizations
-  inter_out: false    # 💾 Output intermediate data (detections, vertices)
+  inter_out: true    # 💾 Output intermediate data (detections, vertices)
 
 # 📏 Object scale computation params
 scale:
@@ -18,15 +22,6 @@ scale:
   edge_erode_px: 3            # erode object mask by N px to remove boundary flying pixels
   stat_nb_neighbors: 80       # statistical outlier removal: neighbor count
   stat_std_ratio: 2.0         # statistical outlier removal: std threshold
-
-# 🎯 MegaPose6D pose estimation config (used by pose_est.py)
-megapose6d:
-  scene_model: "megapose-1.0-RGB-multi-hypothesis-icp"
-  grasp_model: "megapose-1.0-RGB-multi-hypothesis"
-  n_refiner_iterations: 5
-  n_pose_hypotheses: 5
-  bsz_images: 64
-  n_workers: 1    # 1 worker per renderer to avoid EGL context exhaustion (9→3)
 
 # 🔧 Hydra output control
 hydra:

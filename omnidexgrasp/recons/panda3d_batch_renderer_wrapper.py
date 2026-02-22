@@ -26,6 +26,11 @@ from megapose.panda3d_renderer.panda3d_scene_renderer import Panda3dSceneRendere
 
 def _init_renderers(self, preload_cache: bool) -> None:
     """Create Panda3dSceneRenderer in main process instead of spawning subprocesses."""
+    import panda3d.core as p3d
+    # Panda3D resolves textures via model-path (not relative to .obj), so add each mesh dir
+    for obj in self._object_dataset.list_objects:
+        p3d.get_model_path().prepend_directory(str(obj.mesh_path.parent))
+
     object_labels = [obj.label for obj in self._object_dataset.list_objects]
     preload_labels = set(object_labels) if preload_cache else set()
     self._renderer = Panda3dSceneRenderer(
