@@ -106,6 +106,7 @@ class TaskOutput:
     hamer: HaMeRResult | None = None
     scale: ScaleResult | None = None
     grasp_cam: CameraIntrinsics | None = None  # 📐 precomputed grasp intrinsics
+    scene_pcd: Any = None  # (N, 3) float32 meters, scene obj pointcloud
 
 
 # ══════════════════════════════════════════════════════════════════════════════

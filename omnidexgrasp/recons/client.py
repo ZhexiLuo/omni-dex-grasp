@@ -187,6 +187,7 @@ def process_task(task: TaskInput, cfg: DictConfig) -> TaskOutput:
         mesh_max_extent=mesh_ext,
         scaled_mesh=scale_and_center_mesh(task.obj_mesh, scale_factor),
     )
+    output.scene_pcd = pcd_clean  # scene obj pointcloud (denoised)
     print(f"     └─ scale_factor: {scale_factor:.6f}")
     print(f"     └─ pcd_extent: {pcd_ext:.4f}m, mesh_extent: {mesh_ext:.4f}")
 
@@ -271,6 +272,10 @@ def save_intermediate(result: TaskOutput, output_dir: Path) -> None:
             "pcd_max_extent": result.scale.pcd_max_extent,
             "mesh_max_extent": result.scale.mesh_max_extent,
         })
+
+    # ☁️ Pointclouds
+    if result.scene_pcd is not None:
+        np.savez_compressed(data_dir / "scene_pcd.npz", points=result.scene_pcd)
 
 
 # ── 📦 Flat Output for Downstream Optim ──────────────────────────────────────
