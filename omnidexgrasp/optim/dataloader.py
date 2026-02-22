@@ -1,6 +1,6 @@
 """📦 Data loading for MANO hand optimization.
 
-Loads run.py flat output + dataset source images.
+Loads client.py flat output + dataset source images.
 """
 import os
 os.environ["PYOPENGL_PLATFORM"] = "egl"
@@ -16,7 +16,6 @@ import trimesh
 from PIL import Image
 from mesh_to_sdf import mesh_to_voxels
 from pyrender.camera import IntrinsicsCamera
-from pytorch3d.transforms import quaternion_to_matrix
 
 # 🔄 y-down/z-forward -> y-up/z-back
 COORD_CORRECTION = torch.tensor([
@@ -71,21 +70,6 @@ def compute_sdf(
     }, obj_verts
 
 
-def _load_pose(path: Path, device: torch.device) -> torch.Tensor:
-    """📐 Load quat_xyzw + translation JSON → 4x4 pose matrix."""
-    with open(path) as f:
-        data = json.load(f)
-    quat_xyzw = torch.tensor(data["quat_xyzw"], device=device).float()
-    transl = torch.tensor(data["translation"], device=device).float()
-    # xyzw -> wxyz for pytorch3d
-    quat_wxyz = torch.cat([quat_xyzw[-1:], quat_xyzw[:-1]])
-    rot = quaternion_to_matrix(quat_wxyz.unsqueeze(0)).squeeze(0)
-    pose = torch.eye(4, device=device)
-    pose[:3, :3] = rot
-    pose[:3, 3] = transl
-    return pose
-
-
 def _load_cam(path: Path, device: torch.device) -> dict:
     """📷 Load normalized camera params JSON → dict with tensors."""
     with open(path) as f:
@@ -111,7 +95,7 @@ class OptimDataLoader:
 
     Args:
         data_dir: datasets/<task_name>/ — source images
-        output_dir: out/<task_name>/ — run.py flat output
+        output_dir: out/<task_name>/ — client.py flat output
         device: torch device
     """
 
@@ -131,7 +115,8 @@ class OptimDataLoader:
 
         # 🎭 seg_mask.png → hand_mask + obj_mask
         seg = np.array(Image.open(out / "seg_mask.png").convert("L"))
-        inpaint = np.array(Image.open(out / "inpaint_mask.png").convert("L"))
+        # rendered inpaint mask from pose_est (grasp pose render), NOT seg obj_mask
+        inpaint = np.array(Image.open(out / "obj_mask.png").convert("L"))
 
         # 📐 object mesh + pose
         mesh_path = out / "scaled_mesh.obj"
@@ -142,7 +127,9 @@ class OptimDataLoader:
         cam_params = _load_cam(out / "camera_params.json", self.device)
 
         # 📐 object camera = same intrinsics, pose-derived extrinsics
-        object_pose = _load_pose(out / "grasp_pose.json", self.device)
+        # pose_est.json: {"grasp": {"pose": 4x4 T_CO matrix, "score": float}, "scene": {...}}
+        with open(out / "pose_est.json") as f:
+            object_pose = torch.tensor(json.load(f)["grasp"]["pose"], device=self.device).float()
         obj_extrinsics = torch.linalg.inv(object_pose) @ COORD_CORRECTION.to(self.device)
         obj_cam = {
             "fx": cam_params["fx"], "fy": cam_params["fy"],
