@@ -4,12 +4,6 @@
 [submodule "omnidexgrasp/thirdparty/Grounded-SAM-2"]
 	path = omnidexgrasp/thirdparty/Grounded-SAM-2
 	url = https://github.com/IDEA-Research/Grounded-SAM-2.git
-[submodule "omnidexgrasp/thirdparty/Depth-Anything-3"]
-	path = omnidexgrasp/thirdparty/Depth-Anything-3
-	url = https://github.com/ByteDance-Seed/Depth-Anything-3
-[submodule "omnidexgrasp/thirdparty/FoundationPose"]
-	path = omnidexgrasp/thirdparty/FoundationPose
-	url = https://github.com/NVlabs/FoundationPose
 [submodule "omnidexgrasp/thirdparty/EasyHOI"]
 	path = omnidexgrasp/thirdparty/EasyHOI
 	url = https://github.com/ZhexiLuo/EasyHOI
