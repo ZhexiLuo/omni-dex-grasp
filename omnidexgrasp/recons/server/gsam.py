@@ -90,7 +90,7 @@ class GSAM2Model:
         return masks.squeeze(1) if masks.ndim == 4 else masks
 
     def select_top_detections(self, dets: list[dict], include_hand: bool, img_size: tuple[int, int]) -> list[dict]:
-        """🎯 Select top-1 object (must overlap center region) and top-1 hand."""
+        """🎯 Select top-1 object and top-1 hand."""
         h, w = img_size
         r = self.cfg.inference.center_ratio
         cx0, cy0, cx1, cy1 = w * (1-r)/2, h * (1-r)/2, w * (1+r)/2, h * (1+r)/2
@@ -109,7 +109,7 @@ class GSAM2Model:
             selected.append(best)
             print(f"  🎯 Object: '{best['label']}' score={best['score']:.3f} ({len(center_objs)}/{len(obj_dets)} in center)")
         else:
-            print("  ⚠️ No object in center region")
+            print("  ⚠️ No object meet requirements")
 
         if include_hand and hand_dets:
             best = max(hand_dets, key=lambda d: d["score"])
@@ -233,9 +233,6 @@ def predict(req: PredictRequest, request: Request) -> PredictResponse:
     image = Image.open(io.BytesIO(img_bytes)).convert("RGB")
 
     text_prompt = f"{req.text_prompt.rstrip('. ')}. hand." if req.include_hand else req.text_prompt
-    if req.include_hand:
-        print(f"  🤚 Auto-appended 'hand.' to prompt: '{text_prompt}'")
-
     dets = model.detect(image, text_prompt)
     dets = model.select_top_detections(dets, req.include_hand, img_size=(image.height, image.width))
     if not dets:

@@ -66,16 +66,12 @@ class ScaleResult:
     pcd_num_points: int
     pcd_max_extent: float
     mesh_max_extent: float
-    scaled_mesh: Any = None  # trimesh.Trimesh, kept in memory
+    scaled_mesh: Any = None  # trimesh.Trimesh
 
 
 @dataclass
 class PoseEstInput:
     """🎯 Standard input for a single MegaPose6D inference call.
-
-    Both scene and grasp share this structure. The only difference is how K is loaded:
-    - scene: load_k_from_yaml(datasets/task/camera.yaml)
-    - grasp: load_k_from_json(out/task/intrinsics.json)
     """
 
     rgb: np.ndarray           # [H, W, 3] uint8 RGB image
