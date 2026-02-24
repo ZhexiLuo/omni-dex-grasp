@@ -216,9 +216,9 @@ def save_output(result: TaskOutput, output_dir: Path, cfg: DictConfig) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     if cfg.out.vis:
-        save_visualizations(result, output_dir)
+        save_visualizations(result, output_dir / "data" / "recons" / "vis")
     if cfg.out.inter_out:
-        save_intermediate(result, output_dir)
+        save_intermediate(result, output_dir / "data" / "recons" / "inter")
 
     save_optim_output(result, output_dir, result.grasp_cam)
     print(f"  💾 Saved to: {output_dir}")
@@ -226,8 +226,8 @@ def save_output(result: TaskOutput, output_dir: Path, cfg: DictConfig) -> None:
 
 def save_visualizations(result: TaskOutput, output_dir: Path) -> None:
     """Save visualization images."""
-    vis_dir = output_dir / "vis"
-    vis_dir.mkdir(exist_ok=True)
+    vis_dir = output_dir
+    vis_dir.mkdir(parents=True, exist_ok=True)
 
     items = [
         (result.gsam_scene and result.gsam_scene.annotated_b64, "gsam_scene_annotated.jpg"),
@@ -243,8 +243,8 @@ def save_visualizations(result: TaskOutput, output_dir: Path) -> None:
 
 def save_intermediate(result: TaskOutput, output_dir: Path) -> None:
     """Save intermediate data (detections, vertices, params)."""
-    data_dir = output_dir / "data"
-    data_dir.mkdir(exist_ok=True)
+    data_dir = output_dir
+    data_dir.mkdir(parents=True, exist_ok=True)
 
     # 🎭 GSAM detections
     if result.gsam_scene:

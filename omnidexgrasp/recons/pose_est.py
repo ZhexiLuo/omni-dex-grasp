@@ -167,8 +167,8 @@ def save_pose_output(
     estimator: MegaPoseEstimator,
 ) -> None:
     """Save pose_est.json, obj_mask.png, and visualization overlays."""
-    vis_dir = task_out / "vis"
-    vis_dir.mkdir(exist_ok=True)
+    vis_dir = task_out / "data" / "recons" / "vis"
+    vis_dir.mkdir(parents=True, exist_ok=True)
 
     # Write scene + grasp poses to JSON
     (task_out / "pose_est.json").write_text(json.dumps({

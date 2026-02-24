@@ -155,7 +155,8 @@ class OptimDataLoader:
         }
 
         # 📐 SDF
-        obj_sdf, obj_verts = compute_sdf(obj_mesh, out, self.device)
+        sdf_cache_dir = self.output_dir / "data" / "optim"
+        obj_sdf, obj_verts = compute_sdf(obj_mesh, sdf_cache_dir, self.device)
         if obj_sdf is None:
             logging.error("❌ SDF computation failed")
             return None
