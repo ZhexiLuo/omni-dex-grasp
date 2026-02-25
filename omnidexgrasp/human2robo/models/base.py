@@ -143,7 +143,7 @@ class RobotHandModel:
 
         return torch.max(torch.stack(pen_list), dim=0)[0]  # (B, N)
 
-    def forward(self, hand_pose, object_pc=None, with_penetration=False):
+    def forward(self, hand_pose, object_pc=None, with_penetration=False, include_fingertip_mesh=True):
         """FK: (B, 3+3+N_joints) → vertices, faces, fingertip_keypoints [, penetration].
 
         Returns dict with keys: vertices, faces, fingertip_keypoints, penetration (optional).
@@ -163,17 +163,19 @@ class RobotHandModel:
                                                              global_R=global_R,
                                                              current_status=current_status)
 
-        # Aggregate all link vertices into world frame
+        # Aggregate link vertices into world frame (optionally skip fingertip link spheres)
+        link_names = [ln for ln in self.mesh
+                      if include_fingertip_mesh or ln not in self.fingertip_links]
         verts_list = [
             current_status[ln].transform_points(self.mesh[ln]["vertices"]).expand(B, -1, -1)
-            for ln in self.mesh
+            for ln in link_names
         ]
         hand["vertices"] = (torch.cat(verts_list, dim=1) @ global_R.transpose(1, 2)
                             + global_t.unsqueeze(1))
 
         # Build global face index
         offset, faces_list = 0, []
-        for ln in self.mesh:
+        for ln in link_names:
             faces_list.append(self.mesh[ln]["faces"] + offset)
             offset += self.mesh[ln]["vertices"].shape[0]
         hand["faces"] = torch.cat(faces_list, dim=0)
@@ -192,5 +194,5 @@ class RobotHandModel:
         """Hook for subclasses (e.g., Inspire mimic joints)."""
         return joint_pose
 
-    def __call__(self, hand_pose, object_pc=None, with_penetration=False):
-        return self.forward(hand_pose, object_pc, with_penetration)
+    def __call__(self, hand_pose, object_pc=None, with_penetration=False, include_fingertip_mesh=True):
+        return self.forward(hand_pose, object_pc, with_penetration, include_fingertip_mesh)

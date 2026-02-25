@@ -30,11 +30,11 @@ def load_tasks(output_dir: Path) -> dict[str, dict]:
 
 
 def get_hand_mesh(hand_type: str, dex_pose: list, assets_root: Path) -> trimesh.Trimesh | None:
-    """Get robot hand trimesh from forward kinematics."""
+    """Get robot hand trimesh from forward kinematics (fingertip link meshes excluded)."""
     try:
         from human2robo.models import HAND_MODELS
         model = HAND_MODELS[hand_type](assets_root=assets_root, device="cpu", use_convex=False)
-        out = model(torch.tensor([dex_pose], dtype=torch.float32))
+        out = model(torch.tensor([dex_pose], dtype=torch.float32), include_fingertip_mesh=False)
         return trimesh.Trimesh(
             vertices=out["vertices"][0].detach().numpy(),
             faces=out["faces"].numpy(),
@@ -98,7 +98,7 @@ def main():
             final_pose = entry["final"] if isinstance(entry, dict) else entry
             final_mesh = get_hand_mesh(hand_type, final_pose, assets_root)
             if final_mesh is not None:
-                final_mesh.visual.vertex_colors = [0, 100, 255, 120]  # blue
+                final_mesh.visual.vertex_colors = [0, 100, 255, 80]  # blue, semi-transparent
                 server.scene.add_mesh_trimesh("hand_final", final_mesh)
 
             # MANO hand mesh in obj_cam frame via dataloader
@@ -107,11 +107,16 @@ def main():
                 mano_verts = task_data.mano_verts_obj[0].cpu().numpy()
                 mano_faces = dataloader.mano_faces.cpu().numpy()
                 mano_mesh  = trimesh.Trimesh(vertices=mano_verts, faces=mano_faces)
-                mano_mesh.visual.vertex_colors = [220, 140, 60, 120]  # orange
+                mano_mesh.visual.vertex_colors = [0, 200, 0, 80]   # green, semi-transparent
                 server.scene.add_mesh_trimesh("hand_mano", mano_mesh)
 
-            trans = [round(x, 4) for x in final_pose[:3]]
-            info_md.content = f"**{task_name}** | {hand_type} | trans=`{trans}`\n\n🟠 MANO  🔵 robot"
+            pose_str = ", ".join(f"{v:.3f}" for v in final_pose)
+            info_md.content = (
+                f"**{task_name}** | `{hand_type}`\n\n"
+                f"🟢 MANO &nbsp; 🔵 robot\n\n"
+                f"**dex_pose** ({len(final_pose)} dims):\n\n"
+                f"```\n{pose_str}\n```"
+            )
         else:
             info_md.content = f"⚠️ No {hand_type} result"
 
