@@ -1,6 +1,6 @@
 # 🤚 MANO Hand Optimization Config
-datasets: ../datasets
-output: ../out
+datasets: ../../2026-2-25-export
+output: ../../out
 easyhoi_root: thirdparty/EasyHOI
 
 out:
