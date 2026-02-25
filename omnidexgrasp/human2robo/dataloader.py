@@ -52,7 +52,7 @@ class RetargetDataLoader:
 
     def load(self, task_name: str) -> "RetargetData | None":
         task_out = self.output_dir / task_name
-        manopose_path = task_out / "manopose.json"
+        manopose_path = task_out / "optim_res.json"
         mesh_path = task_out / "scaled_mesh.obj"
 
         if not manopose_path.exists() or not mesh_path.exists():
