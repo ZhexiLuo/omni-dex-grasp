@@ -19,7 +19,6 @@ from .loss import compute_loss, LossWeights
 class RetargetResult:
     """📤 Retargeting result for one hand type (pose in obj_cam/mesh-local frame)."""
     hand_type: str
-    dex_pose_init: torch.Tensor  # (1, DOF) initial pose from kinematic mapping (before optimization)
     dex_pose_obj: torch.Tensor   # (1, DOF) optimized pose in obj_cam frame
 
 
@@ -49,8 +48,6 @@ def retarget_pose(
             logging.info(f"  [{hand_type}] S1 iter={t:3d}  finger={info.fingertip:.4f}")
         opt.zero_grad(); loss.backward(); opt.step()
 
-    dex_pose_init = dex_pose.detach().clone()
-
     # ── Stage 2: Fingertip + penetration (SGD, freeze translation) ───────────
     opt = torch.optim.SGD([dex_pose], lr=cfg.optim.stage2.lr, weight_decay=0)
     w2 = LossWeights(finger=cfg.optim.weights.finger, pen=cfg.optim.weights.pen)
@@ -73,5 +70,4 @@ def retarget_pose(
                  f"finger={info.fingertip:.4f} pen={info.penetration:.4f}")
 
     return RetargetResult(hand_type=hand_type,
-                          dex_pose_init=dex_pose_init,
                           dex_pose_obj=dex_pose.detach())

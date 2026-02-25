@@ -65,10 +65,7 @@ def main(cfg: DictConfig) -> None:
                 cfg=cfg,
                 hand_type=hand_type,
             )
-            result[hand_type] = {
-                "init":  ret.dex_pose_init.squeeze(0).tolist(),
-                "final": ret.dex_pose_obj.squeeze(0).tolist(),
-            }
+            result[hand_type] = ret.dex_pose_obj.squeeze(0).tolist()
 
         out_path = task_dir / "robo.json"
         with open(out_path, "w") as f:

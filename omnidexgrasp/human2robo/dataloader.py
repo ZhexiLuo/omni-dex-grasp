@@ -29,6 +29,7 @@ class RetargetData:
     mano_axis_angle: torch.Tensor    # (1, 3)     updated global rotation in obj_cam frame
     mano_pose: torch.Tensor          # (1, 45)    finger joint angles (frame-independent)
     is_right: bool
+    mano_verts_obj: torch.Tensor     # (1, V, 3)  MANO mesh vertices in obj_cam frame
 
 
 class RetargetDataLoader:
@@ -45,8 +46,11 @@ class RetargetDataLoader:
             use_pca=False,
         ).to(device)
 
+    @property
+    def mano_faces(self) -> torch.Tensor:
+        return self._mano.th_faces  # (F, 3) long
+
     def load(self, task_name: str) -> "RetargetData | None":
-        """Load retargeting data for one task."""
         task_out = self.output_dir / task_name
         manopose_path = task_out / "manopose.json"
         mesh_path = task_out / "scaled_mesh.obj"
@@ -69,7 +73,8 @@ class RetargetDataLoader:
 
         # MANO FK -> joints in MANO canonical space
         mano_out = self._mano(fullpose, betas)
-        joints_local = mano_out.joints  # (1, J, 3)
+        joints_local = mano_out.joints   # (1, J, 3)
+        verts_local  = mano_out.vertices  # (1, V, 3)
 
         # ── Replicate real_dataset.py get_hand_transform() ──────────────────
         # Step 1: HaMeR rotation correction (flip y/z; diagonal matrix so .T == self)
@@ -85,6 +90,7 @@ class RetargetDataLoader:
 
         # Apply combined (rot, trans) to MANO joints -> obj_cam frame
         joints_obj = joints_local @ rot + trans       # (1, J, 3)
+        verts_obj  = verts_local  @ rot + trans       # (1, V, 3)
 
         # Fingertips: indices [4, 8, 12, 16, 20] -> thumb/index/middle/ring/pinky
         gt_fingertip = joints_obj[:, [4, 8, 12, 16, 20]]   # (1, 5, 3)
@@ -111,4 +117,5 @@ class RetargetDataLoader:
             mano_axis_angle=new_axis_angle,
             mano_pose=fullpose[:, 3:],
             is_right=is_right,
+            mano_verts_obj=verts_obj,
         )
