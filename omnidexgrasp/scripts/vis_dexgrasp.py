@@ -8,6 +8,7 @@ Usage:
 """
 
 import sys
+import math
 from pathlib import Path
 
 # Add project root to path so human2robo can be imported
@@ -18,6 +19,9 @@ import argparse
 import trimesh
 import torch
 import viser
+
+# 90° CCW around X: fixes up-direction so the grasp faces forward
+_ROT90X = (math.sqrt(2) / 2, math.sqrt(2) / 2, 0.0, 0.0)  # wxyz
 
 
 def load_tasks(output_dir: Path) -> dict[str, dict]:
@@ -46,8 +50,8 @@ def get_hand_mesh(hand_type: str, dex_pose: list, assets_root: Path) -> trimesh.
 
 def main():
     parser = argparse.ArgumentParser(description="Visualize H2R dexterous grasp results")
-    parser.add_argument("--output",    default="../out",         help="Output directory")
-    parser.add_argument("--assets",    default="../assets/robo", help="Robot hand assets")
+    parser.add_argument("--output",    default="../out",          help="Output directory")
+    parser.add_argument("--assets",    default="../assets/robo",  help="Robot hand assets")
     parser.add_argument("--mano-root", default="../assests/mano", help="MANO assets root")
     parser.add_argument("--port",      type=int, default=8080)
     args = parser.parse_args()
@@ -70,11 +74,15 @@ def main():
     server = viser.ViserServer(port=args.port)
     print(f"🌐 Viser: http://localhost:{args.port} | {len(tasks)} tasks")
 
+    # Scene root frame rotated 90° CCW around X so objects face forward
+    server.scene.add_frame("/scene", wxyz=_ROT90X, show_axes=False)
+
     task_names = list(tasks.keys())
     hand_types = [ht for ht in ["inspire", "wuji", "shadow"]
                   if ht in tasks[task_names[0]]]
 
     state: dict = {"task": task_names[0], "hand": hand_types[0] if hand_types else ""}
+    handles: dict = {}
 
     task_dd = server.gui.add_dropdown("Task",      options=task_names, initial_value=task_names[0])
     hand_dd = server.gui.add_dropdown("Hand Type", options=hand_types, initial_value=hand_types[0])
@@ -85,12 +93,15 @@ def main():
         hand_type = state["hand"]
         robo      = tasks[task_name]
 
-        server.scene.reset()
+        # Remove previous mesh handles (keep /scene frame)
+        for h in handles.values():
+            h.remove()
+        handles.clear()
 
-        # Object mesh (in object frame = at origin)
+        # Object mesh under /scene so it inherits the X rotation
         mesh_path = output_dir / task_name / "scaled_mesh.obj"
         if mesh_path.exists():
-            server.scene.add_mesh_trimesh("object", trimesh.load(str(mesh_path)))
+            handles["object"] = server.scene.add_mesh_trimesh("/scene/object", trimesh.load(str(mesh_path)))
 
         if hand_type in robo:
             # Final robot hand (support old {"init":…,"final":…} format)
@@ -99,7 +110,7 @@ def main():
             final_mesh = get_hand_mesh(hand_type, final_pose, assets_root)
             if final_mesh is not None:
                 final_mesh.visual.vertex_colors = [0, 100, 255, 80]  # blue, semi-transparent
-                server.scene.add_mesh_trimesh("hand_final", final_mesh)
+                handles["hand_final"] = server.scene.add_mesh_trimesh("/scene/hand_final", final_mesh)
 
             # MANO hand mesh in obj_cam frame via dataloader
             task_data = dataloader.load(task_name)
@@ -108,7 +119,7 @@ def main():
                 mano_faces = dataloader.mano_faces.cpu().numpy()
                 mano_mesh  = trimesh.Trimesh(vertices=mano_verts, faces=mano_faces)
                 mano_mesh.visual.vertex_colors = [0, 200, 0, 80]   # green, semi-transparent
-                server.scene.add_mesh_trimesh("hand_mano", mano_mesh)
+                handles["hand_mano"] = server.scene.add_mesh_trimesh("/scene/hand_mano", mano_mesh)
 
             pose_str = ", ".join(f"{v:.3f}" for v in final_pose)
             info_md.content = (
