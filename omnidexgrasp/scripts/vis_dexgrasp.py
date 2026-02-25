@@ -93,8 +93,9 @@ def main():
             server.scene.add_mesh_trimesh("object", trimesh.load(str(mesh_path)))
 
         if hand_type in robo:
-            # Robot hand (dex_pose in object frame)
-            final_pose = robo[hand_type]   # plain list
+            # Final robot hand (support old {"init":…,"final":…} format)
+            entry = robo[hand_type]
+            final_pose = entry["final"] if isinstance(entry, dict) else entry
             final_mesh = get_hand_mesh(hand_type, final_pose, assets_root)
             if final_mesh is not None:
                 final_mesh.visual.vertex_colors = [0, 100, 255, 120]  # blue

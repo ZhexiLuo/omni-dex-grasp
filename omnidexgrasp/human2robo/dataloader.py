@@ -74,7 +74,7 @@ class RetargetDataLoader:
         # MANO FK -> joints in MANO canonical space
         mano_out = self._mano(fullpose, betas)
         joints_local = mano_out.joints   # (1, J, 3)
-        verts_local  = mano_out.vertices  # (1, V, 3)
+        verts_local  = mano_out.verts      # (1, V, 3)
 
         # ── Replicate real_dataset.py get_hand_transform() ──────────────────
         # Step 1: HaMeR rotation correction (flip y/z; diagonal matrix so .T == self)
