@@ -8,7 +8,7 @@ n_obj_pts: 2048
 device: cuda
 
 assets_root: ../assets/robo
-mano_assets_root: ../assests/mano
+mano_assets_root: ../assets/mano
 
 optim:
   stage1:

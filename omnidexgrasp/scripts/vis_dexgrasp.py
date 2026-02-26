@@ -52,7 +52,7 @@ def main():
     parser = argparse.ArgumentParser(description="Visualize H2R dexterous grasp results")
     parser.add_argument("--output",    default="../out",          help="Output directory")
     parser.add_argument("--assets",    default="../assets/robo",  help="Robot hand assets")
-    parser.add_argument("--mano-root", default="../assests/mano", help="MANO assets root")
+    parser.add_argument("--mano-root", default="../assets/mano", help="MANO assets root")
     parser.add_argument("--port",      type=int, default=8080)
     args = parser.parse_args()
 
