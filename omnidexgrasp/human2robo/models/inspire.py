@@ -20,9 +20,13 @@ _MIMIC = {
 }
 
 # Coordinate transform: MANO camera frame → Inspire robot frame
-_ROT1 = torch.tensor([[0., 0., 1.], [0., 1., 0.], [-1., 0., 0.]])
-_ROT2 = torch.tensor([[-1., 0., 0.], [0., -1., 0.], [0., 0., 1.]])
-_LOCAL_OFFSET = torch.tensor([0., 0., 0.05])
+# _ROT1 = torch.tensor([[0., 0., 1.], [0., 1., 0.], [-1., 0., 0.]])
+# _ROT2 = torch.tensor([[-1., 0., 0.], [0., -1., 0.], [0., 0., 1.]])
+# _LOCAL_OFFSET = torch.tensor([0., 0., 0.05])
+
+_ROT1 = torch.tensor([[0.0, 0, -1], [0, 1, 0], [1, 0, 0]])
+_ROT2 = torch.tensor([[-1, 0, 0], [0, -1, 0], [0, 0, 1]])
+_LOCAL_OFFSET = torch.tensor([0, -0.02, -0.13])
 
 
 class InspireModel(RobotHandModel):
@@ -31,8 +35,10 @@ class InspireModel(RobotHandModel):
     dof_total = 18  # 3(trans) + 3(rot) + 12(joints)
 
     def __init__(self, assets_root: Path, device: str = "cuda", use_convex: bool = True):
-        urdf_path = Path(assets_root) / "inspire_hand_ftp" / "urdf" / "inspire_right.urdf"
-        mesh_dir  = Path(assets_root) / "inspire_hand_ftp" / "meshes"
+        # urdf_path = Path(assets_root) / "inspire_hand_ftp" / "urdf" / "inspire_right.urdf"
+        # mesh_dir  = Path(assets_root) / "inspire_hand_ftp" / "meshes"
+        urdf_path = Path(assets_root) / "inspire_hand_ftp_g1" / "FTP_right_hand.urdf"
+        mesh_dir  = Path(assets_root) / "inspire_hand_ftp_g1" / "meshes"
         super().__init__(urdf_path, mesh_dir, _FINGERTIP_LINKS, device, use_convex)
 
     def mano2robot_batch(
