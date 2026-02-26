@@ -74,7 +74,7 @@ def main():
     server = viser.ViserServer(port=args.port)
     print(f"🌐 Viser: http://localhost:{args.port} | {len(tasks)} tasks")
 
-    # Scene root frame rotated 90° CCW around X so objects face forward
+    # Scene root frame rotated 90° CCW around X so objects z-up
     server.scene.add_frame("/scene", wxyz=_ROT90X, show_axes=False)
 
     task_names = list(tasks.keys())
