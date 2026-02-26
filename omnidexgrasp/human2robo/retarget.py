@@ -19,7 +19,8 @@ from .loss import compute_loss, LossWeights
 class RetargetResult:
     """📤 Retargeting result for one hand type (pose in obj_cam/mesh-local frame)."""
     hand_type: str
-    dex_pose_obj: torch.Tensor   # (1, DOF) optimized pose in obj_cam frame
+    init_dex_pose_obj: torch.Tensor  # (1, DOF) initial pose (kinematic mapping, before optim)
+    dex_pose_obj: torch.Tensor       # (1, DOF) optimized pose in obj_cam frame
 
 
 def retarget_pose(
@@ -35,6 +36,7 @@ def retarget_pose(
     """🎯 Two-stage MANO -> robot hand retargeting, output in obj_cam frame."""
     # Initial pose from kinematic mapping (obj_cam frame)
     dex_pose = model.mano2robot_batch(mano_trans, mano_axis_angle, mano_pose)
+    init_dex_pose = dex_pose.detach().clone()   # save before optimization
     dex_pose = dex_pose.detach().requires_grad_(True)
     
     # ── Stage 1: Fingertip alignment (Adam, obj_cam frame) ───────────────────
@@ -70,4 +72,5 @@ def retarget_pose(
                  f"finger={info.fingertip:.4f} pen={info.penetration:.4f}")
 
     return RetargetResult(hand_type=hand_type,
+                          init_dex_pose_obj=init_dex_pose,
                           dex_pose_obj=dex_pose.detach())
