@@ -20,14 +20,11 @@ _MIMIC = {
 }
 
 # Coordinate transform: MANO camera frame → Inspire robot frame
-# _ROT1 = torch.tensor([[0., 0., 1.], [0., 1., 0.], [-1., 0., 0.]])
-# _ROT2 = torch.tensor([[-1., 0., 0.], [0., -1., 0.], [0., 0., 1.]])
-# _LOCAL_OFFSET = torch.tensor([0., 0., 0.05])
-
-_ROT1 = torch.tensor([[0.0, 0, -1], [0, 1, 0], [1, 0, 0]])
-_ROT2 = torch.tensor([[-1.0, 0, 0], [0, -1, 0], [0, 0, 1]])
-_LOCAL_OFFSET = torch.tensor([0.0, -0.02, -0.13])
-
+# New URDF (FTP_right_hand.urdf) base_link = R_y(π) @ old URDF base_link,
+# so compensate by left-multiplying ROT1 with R_y(π).
+_ROT1 = torch.tensor([[0., 0., -1.], [0., 1., 0.], [1., 0., 0.]])
+_ROT2 = torch.tensor([[-1., 0., 0.], [0., -1., 0.], [0., 0., 1.]])
+_LOCAL_OFFSET = torch.tensor([0., -0.02, -0.13])
 
 class InspireModel(RobotHandModel):
     """Inspire Hand (12-DOF controllable joints, 18-dim pose vector)."""
