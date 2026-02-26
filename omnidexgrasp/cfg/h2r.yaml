@@ -19,7 +19,7 @@ optim:
     iters: 100
   weights:
     finger: 1.0
-    pen: 10.0
+    pen: 1.0
 
 hydra:
   run:

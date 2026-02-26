@@ -25,8 +25,8 @@ _MIMIC = {
 # _LOCAL_OFFSET = torch.tensor([0., 0., 0.05])
 
 _ROT1 = torch.tensor([[0.0, 0, -1], [0, 1, 0], [1, 0, 0]])
-_ROT2 = torch.tensor([[-1, 0, 0], [0, -1, 0], [0, 0, 1]])
-_LOCAL_OFFSET = torch.tensor([0, -0.02, -0.13])
+_ROT2 = torch.tensor([[-1.0, 0, 0], [0, -1, 0], [0, 0, 1]])
+_LOCAL_OFFSET = torch.tensor([0.0, -0.02, -0.13])
 
 
 class InspireModel(RobotHandModel):

@@ -5,7 +5,6 @@ claude/
 
 # 🎯 Model checkpoints & assets (large files)
 checkpoints/
-assests/
 
 # 🐍 Python
 __pycache__/
