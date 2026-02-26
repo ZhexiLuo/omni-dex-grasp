@@ -81,12 +81,13 @@ def main():
     hand_types = [ht for ht in ["inspire", "wuji", "shadow"]
                   if ht in tasks[task_names[0]]]
 
-    state: dict = {"task": task_names[0], "hand": hand_types[0] if hand_types else ""}
+    state: dict = {"task": task_names[0], "hand": hand_types[0] if hand_types else "", "show_init": True}
     handles: dict = {}
 
-    task_dd = server.gui.add_dropdown("Task",      options=task_names, initial_value=task_names[0])
-    hand_dd = server.gui.add_dropdown("Hand Type", options=hand_types, initial_value=hand_types[0])
-    info_md = server.gui.add_markdown("*Select task and hand type*")
+    task_dd   = server.gui.add_dropdown("Task",      options=task_names, initial_value=task_names[0])
+    hand_dd   = server.gui.add_dropdown("Hand Type", options=hand_types, initial_value=hand_types[0])
+    show_init = server.gui.add_checkbox("Show Init Hand", initial_value=True)
+    info_md   = server.gui.add_markdown("*Select task and hand type*")
 
     def refresh():
         task_name = state["task"]
@@ -104,9 +105,18 @@ def main():
             handles["object"] = server.scene.add_mesh_trimesh("/scene/object", trimesh.load(str(mesh_path)))
 
         if hand_type in robo:
-            # Final robot hand (support old {"init":…,"final":…} format)
             entry = robo[hand_type]
+            init_pose  = entry["init"]  if isinstance(entry, dict) else entry
             final_pose = entry["final"] if isinstance(entry, dict) else entry
+
+            # Init robot hand (orange) — before optimization
+            if state["show_init"]:
+                init_mesh = get_hand_mesh(hand_type, init_pose, assets_root)
+                if init_mesh is not None:
+                    init_mesh.visual.vertex_colors = [255, 140, 0, 80]  # orange, semi-transparent
+                    handles["hand_init"] = server.scene.add_mesh_trimesh("/scene/hand_init", init_mesh)
+
+            # Final robot hand (blue) — after optimization
             final_mesh = get_hand_mesh(hand_type, final_pose, assets_root)
             if final_mesh is not None:
                 final_mesh.visual.vertex_colors = [0, 100, 255, 80]  # blue, semi-transparent
@@ -122,10 +132,11 @@ def main():
                 handles["hand_mano"] = server.scene.add_mesh_trimesh("/scene/hand_mano", mano_mesh)
 
             pose_str = ", ".join(f"{v:.3f}" for v in final_pose)
+            legend = "🟠 init &nbsp; 🔵 final &nbsp; 🟢 MANO" if state["show_init"] else "🔵 final &nbsp; 🟢 MANO"
             info_md.content = (
                 f"**{task_name}** | `{hand_type}`\n\n"
-                f"🟢 MANO &nbsp; 🔵 robot\n\n"
-                f"**dex_pose** ({len(final_pose)} dims):\n\n"
+                f"{legend}\n\n"
+                f"**dex_pose final** ({len(final_pose)} dims):\n\n"
                 f"```\n{pose_str}\n```"
             )
         else:
@@ -136,6 +147,9 @@ def main():
 
     @hand_dd.on_update
     def _(e): state["hand"] = e.target.value; refresh()
+
+    @show_init.on_update
+    def _(e): state["show_init"] = e.target.value; refresh()
 
     refresh()
     print("🎨 Ready. Press Ctrl+C to exit.")
