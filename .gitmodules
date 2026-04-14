@@ -1,0 +1,12 @@
+[submodule "omnidexgrasp/thirdparty/hamer"]
+	path = omnidexgrasp/thirdparty/hamer
+	url = https://github.com/geopavlakos/hamer.git
+[submodule "omnidexgrasp/thirdparty/Grounded-SAM-2"]
+	path = omnidexgrasp/thirdparty/Grounded-SAM-2
+	url = https://github.com/IDEA-Research/Grounded-SAM-2.git
+[submodule "omnidexgrasp/thirdparty/EasyHOI"]
+	path = omnidexgrasp/thirdparty/EasyHOI
+	url = https://github.com/ZhexiLuo/EasyHOI
+[submodule "omnidexgrasp/thirdparty/megapose6d"]
+	path = omnidexgrasp/thirdparty/megapose6d
+	url = https://github.com/megapose6d/megapose6d.git

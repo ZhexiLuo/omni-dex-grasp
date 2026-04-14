@@ -1,0 +1,59 @@
+# claude out
+CLAUDE.md
+CLAUDE/
+claude/
+.omc/
+
+# scripts (not for release)
+omnidexgrasp/scripts/gen_human_grasp_*.py
+
+# MANO model data (license restricted)
+assets/mano/
+
+# thirdparty not registered as submodule
+omnidexgrasp/thirdparty/CSDF/
+
+# 🎯 Model checkpoints & assets (large files)
+checkpoints/
+
+# 🐍 Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+*.so
+
+# 📦 Environment
+*.egg
+
+# 🔧 IDE
+.idea/
+.vscode/
+
+# 🍎 OS files
+.DS_Store
+Thumbs.db
+
+# 🔑 Environment secrets
+.env
+.env.*
+
+# 📝 Editor swap files
+*.swp
+*.swo
+*~
+
+# 🧪 Python tools
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+
+# logs
+*.log
+
+# ignore output
+out/
+
+omnidexgrasp/log/
