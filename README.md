@@ -86,24 +86,28 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
 
 # 3. Install PyTorch3D
 conda install -c conda-forge iopath fvcore -y
-pip install "git+https://github.com/facebookresearch/pytorch3d.git"
+pip install --no-build-isolation "git+https://github.com/facebookresearch/pytorch3d.git"
 
-# 4. Install project dependencies
+# 4. Install nvdiffrast 
+git clone https://github.com/NVlabs/nvdiffrast.git /tmp/nvdiffrast
+cd /tmp/nvdiffrast && pip install . --no-build-isolation && cd -
+
+# 5. Install project dependencies (includes manotorch, chamfer-distance, etc.)
 pip install -r requirements.txt
 
-# 5. Install CSDF (https://github.com/wrc042/CSDF)
+# 6. Install CSDF (https://github.com/wrc042/CSDF)
 git clone https://github.com/wrc042/CSDF.git omnidexgrasp/thirdparty/CSDF
 cd omnidexgrasp/thirdparty/CSDF
-pip install -e .
+pip install -e . --no-build-isolation
 cd ../../..
 
-# 6. Install EasyHOI
+# 7. Install EasyHOI
 cd omnidexgrasp/thirdparty/EasyHOI
 pip install -e .
 cd ../../..
 ```
 
-> **Note:** Building CSDF and PyTorch3D from source requires CUDA toolkit. Ensure `nvcc` is available in your PATH.
+> **Note:** Building CSDF, PyTorch3D and nvdiffrast from source requires CUDA toolkit. Ensure `nvcc` is available in your PATH.
 
 **Setting up server environments (`hamer`, `gsam`):**
 
